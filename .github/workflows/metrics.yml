@@ -1,16 +1,50 @@
-name: Metrics Setup Check
+name: DORA Metrics Collection
 
 on:
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
   push:
     branches: [main]
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  check:
+  collect-metrics:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     steps:
-      - name: Check workflow
-        run: echo "GitHub Actions is working!"
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Ensure data directory exists
+        run: mkdir -p data
+
+      - name: Generate DORA metrics
+        run: python metrics.py
+
+      - name: Upload metrics artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dora-metrics
+          path: |
+            metrics.json
+            weekly-report.md
+            dashboard.html
+          if-no-files-found: warn
+
+      - name: Show generated summary
+        if: always()
+        run: |
+          echo "Generated files:"
+          ls -l metrics.json weekly-report.md dashboard.html
+          echo "--- metrics.json preview ---"
+          sed -n '1,160p' metrics.json

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DORA Dashboard</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f4f7fb;
+        color: #1f2937;
+        margin: 0;
+        padding: 32px;
+      }
+      .container {
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+      h1 {
+        margin-bottom: 24px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+      }
+      .card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+        padding: 20px;
+      }
+      .label {
+        font-size: 12px;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .value {
+        font-size: 28px;
+        font-weight: 700;
+        margin-top: 12px;
+      }
+      .note {
+        margin-top: 20px;
+        padding: 16px 20px;
+        background: #eef6ff;
+        border-left: 4px solid #3b82f6;
+        border-radius: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>DORA Metrics Dashboard</h1>
+      <div class="grid">
+        <div class="card">
+          <div class="label">Lead Time</div>
+          <div class="value" id="lead-time">null</div>
+        </div>
+        <div class="card">
+          <div class="label">Deployment Frequency</div>
+          <div class="value" id="deployment-frequency">null</div>
+        </div>
+        <div class="card">
+          <div class="label">MTTR</div>
+          <div class="value" id="mttr">null</div>
+        </div>
+        <div class="card">
+          <div class="label">Change Failure Rate</div>
+          <div class="value" id="change-failure-rate">null</div>
+        </div>
+      </div>
+
+      <div class="note" id="notes">
+        데이터가 아직 없으면 null로 표시되고, 이유는 JSON 아티팩트의 reason 필드에 기록됩니다.
+      </div>
+    </div>
+
+    <script>
+      async function loadMetrics() {
+        try {
+          const response = await fetch('./metrics.json');
+          if (!response.ok) throw new Error('metrics.json not found');
+          const data = await response.json();
+
+          const changeFailureRate = data.change_failure_rate_value ?? data.change_failure_rate?.value ?? null;
+
+          document.getElementById('lead-time').textContent = data.lead_time_hours == null ? 'null' : `${data.lead_time_hours.toFixed(2)} hours`;
+          document.getElementById('deployment-frequency').textContent = data.deployment_frequency_per_week == null ? 'null' : `${data.deployment_frequency_per_week.toFixed(2)} / week`;
+          document.getElementById('mttr').textContent = data.mttr_hours == null ? 'null' : `${data.mttr_hours.toFixed(2)} hours`;
+          document.getElementById('change-failure-rate').textContent = changeFailureRate == null ? 'null' : `${Number(changeFailureRate).toFixed(2)}`;
+
+          const reason = data.lead_time?.reason || data.change_failure_rate?.reason || '데이터가 아직 준비되지 않았습니다.';
+          document.getElementById('notes').textContent = reason;
+        } catch (error) {
+          document.getElementById('notes').textContent = '아직 metrics.json이 생성되지 않았습니다. GitHub Actions를 실행해 데이터를 생성해 주세요.';
+        }
+      }
+
+      loadMetrics();
+    </script>
+  </body>
+</html>

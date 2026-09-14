@@ -1,0 +1,32 @@
+{
+  "lead_time": {
+    "metric": "lead_time",
+    "value": null,
+    "unit": "hours",
+    "reason": "No valid deployment start/end timestamps found for lead time calculation."
+  },
+  "deployment_frequency": {
+    "metric": "deployment_frequency",
+    "value": null,
+    "unit": "per_week",
+    "reason": "No valid deployment events found in the selected time window."
+  },
+  "mttr": {
+    "metric": "mttr",
+    "value": null,
+    "unit": "hours",
+    "reason": "No valid incident start/resolution timestamps found for MTTR calculation."
+  },
+  "change_failure_rate": {
+    "metric": "change_failure_rate",
+    "value": null,
+    "unit": "ratio",
+    "reason": "No deploy status records were available to compute change failure rate."
+  },
+  "lead_time_hours": null,
+  "deployment_frequency_per_week": null,
+  "mttr_hours": null,
+  "change_failure_rate_value": null,
+  "window_days": 7,
+  "reference_time": "2026-09-14T14:41:38Z"
+}
