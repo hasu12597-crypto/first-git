@@ -1,9 +1,6 @@
-import json
-import os
-import tempfile
 import unittest
 
-from metrics import calculate_dora_metrics
+from metrics import build_weekly_report, calculate_dora_metrics
 
 
 class DORAMetricsTest(unittest.TestCase):
@@ -36,6 +33,15 @@ class DORAMetricsTest(unittest.TestCase):
         self.assertAlmostEqual(metrics["deployment_frequency_per_week"], 2.0, places=2)
         self.assertAlmostEqual(metrics["mttr_hours"], 3.0, places=2)
         self.assertAlmostEqual(metrics["change_failure_rate_value"], 0.3333333333, places=4)
+
+    def test_weekly_report_includes_null_and_reason_guidance(self):
+        metrics = calculate_dora_metrics([], [], days=7)
+        report = build_weekly_report(metrics)
+
+        self.assertIn("null", report)
+        self.assertIn("reason", report.lower())
+        self.assertIn("Lead Time", report)
+        self.assertIn("MTTR", report)
 
 
 if __name__ == "__main__":

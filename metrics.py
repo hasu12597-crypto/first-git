@@ -1,7 +1,13 @@
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")
+GITHUB_SERVER_URL = os.getenv("GITHUB_SERVER_URL", "https://api.github.com")
 
 
 def parse_iso8601(value: Optional[str]) -> Optional[datetime]:
@@ -15,30 +21,26 @@ def parse_iso8601(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
-def isoformat_utc(dt: Optional[datetime]) -> Optional[str]:
-    if dt is None:
-        return None
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def calculate_lead_time_hours(deployments: List[Dict[str, Any]]) -> float:
+def calculate_lead_time_hours(deployments: List[Dict[str, Any]]) -> Optional[float]:
     valid = []
     for item in deployments:
         status = str(item.get("status", "")).lower()
-        started = parse_iso8601(item.get("started_at"))
-        deployed = parse_iso8601(item.get("deployed_at"))
+        commit_time = parse_iso8601(item.get("commit_timestamp")) or parse_iso8601(item.get("started_at"))
+        deployed_at = parse_iso8601(item.get("deployed_at"))
 
         if status in {"failed", "partial", "rollback"}:
             continue
-        if started and deployed and deployed >= started:
-            valid.append((deployed - started).total_seconds() / 3600)
+        if commit_time and deployed_at and deployed_at >= commit_time:
+            valid.append((deployed_at - commit_time).total_seconds() / 3600)
 
     if not valid:
         return None
     return sum(valid) / len(valid)
 
 
-def calculate_deployment_frequency_per_week(deployments: List[Dict[str, Any]], days: int = 7, reference_time: Optional[str] = None) -> float:
+def calculate_deployment_frequency_per_week(
+    deployments: List[Dict[str, Any]], days: int = 7, reference_time: Optional[str] = None
+) -> Optional[float]:
     if not deployments:
         return None
 
@@ -47,8 +49,8 @@ def calculate_deployment_frequency_per_week(deployments: List[Dict[str, Any]], d
     end = parse_iso8601(reference_time)
     if end is None:
         return None
-    start = end - timedelta(days=days)
 
+    start = end - timedelta(days=days)
     count = 0
     for item in deployments:
         deployed_at = parse_iso8601(item.get("deployed_at"))
@@ -60,7 +62,7 @@ def calculate_deployment_frequency_per_week(deployments: List[Dict[str, Any]], d
     return count / (days / 7)
 
 
-def calculate_mttr_hours(incidents: List[Dict[str, Any]]) -> float:
+def calculate_mttr_hours(incidents: List[Dict[str, Any]]) -> Optional[float]:
     valid = []
     for item in incidents:
         started = parse_iso8601(item.get("started_at"))
@@ -73,9 +75,10 @@ def calculate_mttr_hours(incidents: List[Dict[str, Any]]) -> float:
     return sum(valid) / len(valid)
 
 
-def calculate_change_failure_rate(deployments: List[Dict[str, Any]]) -> float:
+def calculate_change_failure_rate(deployments: List[Dict[str, Any]]) -> Optional[float]:
     if not deployments:
         return None
+
     total = 0
     failed = 0
     for item in deployments:
@@ -90,7 +93,9 @@ def calculate_change_failure_rate(deployments: List[Dict[str, Any]]) -> float:
     return failed / total
 
 
-def calculate_dora_metrics(deployments: List[Dict[str, Any]], incidents: List[Dict[str, Any]], days: int = 7, reference_time: Optional[str] = None):
+def calculate_dora_metrics(
+    deployments: List[Dict[str, Any]], incidents: List[Dict[str, Any]], days: int = 7, reference_time: Optional[str] = None
+):
     deployments = deployments or []
     incidents = incidents or []
 
@@ -100,35 +105,44 @@ def calculate_dora_metrics(deployments: List[Dict[str, Any]], incidents: List[Di
     change_failure_rate_value = calculate_change_failure_rate(deployments)
 
     def metric_payload(name: str, value: Optional[float], reason: str) -> Dict[str, Any]:
-        return {
-            "metric": name,
-            "value": value,
-            "unit": "hours" if name in {"lead_time", "mttr"} else "per_week" if name == "deployment_frequency" else "ratio",
-            "reason": reason,
-        }
+        if name in {"lead_time", "mttr"}:
+            unit = "hours"
+        elif name == "deployment_frequency":
+            unit = "per_week"
+        else:
+            unit = "ratio"
+        return {"metric": name, "value": value, "unit": unit, "reason": reason}
 
     lead_time_metric = metric_payload(
         "lead_time",
         lead_time,
-        "No valid deployment start/end timestamps found for lead time calculation." if lead_time is None else "Average time from code start to successful deployment across valid deploy records."
+        "No valid deployment start/end timestamps found for lead time calculation."
+        if lead_time is None
+        else "Average time from commit to successful deployment across valid deploy records.",
     )
     deployment_frequency_metric = metric_payload(
         "deployment_frequency",
         deployment_frequency,
-        "No valid deployment events found in the selected time window." if deployment_frequency is None else "Count of deployment records in the last 7-day window, normalized to one week."
+        "No valid deployment events found in the selected time window."
+        if deployment_frequency is None
+        else "Count of deployment records in the last 7-day window, normalized to one week.",
     )
     mttr_metric = metric_payload(
         "mttr",
         mttr,
-        "No valid incident start/resolution timestamps found for MTTR calculation." if mttr is None else "Average time to restore service after incidents."
+        "No valid incident start/resolution timestamps found for MTTR calculation."
+        if mttr is None
+        else "Average time to restore service after incidents.",
     )
     cfr_metric = metric_payload(
         "change_failure_rate",
         change_failure_rate_value,
-        "No deploy status records were available to compute change failure rate." if change_failure_rate_value is None else "Failed deploy share among all completed deploy records."
+        "No deploy status records were available to compute change failure rate."
+        if change_failure_rate_value is None
+        else "Failed deploy share among all completed deploy records.",
     )
 
-    metrics = {
+    return {
         "lead_time": lead_time_metric,
         "deployment_frequency": deployment_frequency_metric,
         "mttr": mttr_metric,
@@ -140,7 +154,6 @@ def calculate_dora_metrics(deployments: List[Dict[str, Any]], incidents: List[Di
         "window_days": days,
         "reference_time": reference_time or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
-    return metrics
 
 
 def load_json(path: Path) -> List[Dict[str, Any]]:
@@ -152,8 +165,120 @@ def load_json(path: Path) -> List[Dict[str, Any]]:
         if isinstance(data, list):
             return data
         return []
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, OSError):
         return []
+
+
+def fetch_github_pages_deployments(repo: str) -> List[Dict[str, Any]]:
+    if not repo or not GITHUB_TOKEN:
+        return []
+
+    url = f"{GITHUB_SERVER_URL}/repos/{repo}/deployments"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    try:
+        import urllib.request
+
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=30) as response:
+            data = json.loads(response.read().decode("utf-8"))
+
+        items: List[Dict[str, Any]] = []
+        for entry in data:
+            payload = entry.get("payload") or {}
+            environment = payload.get("environment") or entry.get("environment")
+            if environment != "github-pages":
+                continue
+            commit_sha = entry.get("sha") or payload.get("commit_sha")
+            deployed_at = entry.get("created_at")
+            items.append(
+                {
+                    "id": str(entry.get("id")),
+                    "status": "success" if entry.get("state") == "success" else "unknown",
+                    "commit_sha": commit_sha,
+                    "commit_timestamp": entry.get("created_at"),
+                    "deployed_at": deployed_at,
+                    "environment": environment,
+                    "source": "github-pages",
+                    "url": entry.get("url") or entry.get("statuses_url"),
+                }
+            )
+        return items
+    except Exception:
+        return []
+
+
+def fetch_github_issues_incidents(repo: str) -> List[Dict[str, Any]]:
+    if not repo or not GITHUB_TOKEN:
+        return []
+
+    labels = ["incident", "bug", "production"]
+    result: List[Dict[str, Any]] = []
+    seen_ids = set()
+
+    try:
+        import urllib.request
+
+        for label in labels:
+            url = f"{GITHUB_SERVER_URL}/repos/{repo}/issues?state=all&labels={label}&per_page=100"
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {GITHUB_TOKEN}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=30) as response:
+                issues = json.loads(response.read().decode("utf-8"))
+
+            for issue in issues:
+                if issue.get("pull_request"):
+                    continue
+                issue_id = str(issue.get("number"))
+                if issue_id in seen_ids:
+                    continue
+                seen_ids.add(issue_id)
+                created = issue.get("created_at")
+                closed = issue.get("closed_at")
+                if not created:
+                    continue
+                result.append(
+                    {
+                        "id": issue_id,
+                        "title": issue.get("title"),
+                        "status": "resolved" if closed else "open",
+                        "started_at": created,
+                        "resolved_at": closed,
+                        "issue_url": issue.get("html_url"),
+                    }
+                )
+        return result
+    except Exception:
+        return []
+
+
+def append_repository_records(repo_root: Path) -> Dict[str, List[Dict[str, Any]]]:
+    deployment_path = repo_root / "data" / "deployments.json"
+    incident_path = repo_root / "data" / "incidents.json"
+
+    repo_name = GITHUB_REPOSITORY or ""
+    deployments = load_json(deployment_path)
+    incidents = load_json(incident_path)
+
+    if repo_name:
+        api_deployments = fetch_github_pages_deployments(repo_name)
+        if api_deployments:
+            deployments = api_deployments + deployments
+        api_incidents = fetch_github_issues_incidents(repo_name)
+        if api_incidents:
+            incidents = api_incidents + incidents
+
+    return {"deployments": deployments, "incidents": incidents}
 
 
 def build_weekly_report(metrics: Dict[str, Any]) -> str:
@@ -174,20 +299,20 @@ def build_weekly_report(metrics: Dict[str, Any]) -> str:
         "",
         "## Metric Definitions",
         "",
-        "- Lead Time: time from the start of work to successful deployment.",
+        "- Lead Time: time from the code commit to a successful deployment.",
         "- Deployment Frequency: how often deploys happen in a week.",
         "- MTTR: mean time to restore service after an incident.",
         "- Change Failure Rate: share of deployments that fail or require rollback.",
         "",
         "## Data Sources",
         "",
-        "- Deployment events are sourced from deployment records in the repository or workflow outputs.",
-        "- Incident records are sourced from operational incident logs or manually maintained JSON files.",
-        "- If no relevant records exist, values stay null and include the reason field.",
+        "- Deployment events are sourced from GitHub Pages workflow records and repository JSON files.",
+        "- Incident records are sourced from GitHub Issues with incident/bug/production labels and repository JSON files.",
+        "- If data is missing, values stay null and the reason field explains why.",
         "",
         "## Notes",
         "",
-        "This repository currently includes a workflow scaffold and sample files for DORA collection. Actual deployment and incident records must be populated before the metrics become meaningful.",
+        "Empty operational data is intentionally kept as null instead of fabricated values.",
     ]
     return "\n".join(lines) + "\n"
 
@@ -220,41 +345,12 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
         gap: 16px;
       }
-      .card {
-        background: white;
-        border-radius: 12px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
-        padding: 20px;
-      }
-      .label {
-        font-size: 12px;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-      }
-      .value {
-        font-size: 28px;
-        font-weight: 700;
-        margin-top: 12px;
-      }
-      .reason {
-        margin-top: 10px;
-        font-size: 13px;
-        color: #4b5563;
-        line-height: 1.4;
-      }
-      .note {
-        margin-top: 20px;
-        padding: 16px 20px;
-        background: #eef6ff;
-        border-left: 4px solid #3b82f6;
-        border-radius: 8px;
-      }
-      .status {
-        margin-top: 16px;
-        font-size: 14px;
-        font-weight: 600;
-      }
+      .card { background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.06); padding: 20px; }
+      .label { font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.08em; }
+      .value { font-size: 28px; font-weight: 700; margin-top: 12px; }
+      .reason { margin-top: 10px; font-size: 13px; color: #4b5563; line-height: 1.4; }
+      .note { margin-top: 20px; padding: 16px 20px; background: #eef6ff; border-left: 4px solid #3b82f6; border-radius: 8px; }
+      .status { margin-top: 16px; font-size: 14px; font-weight: 600; }
     </style>
   </head>
   <body>
@@ -284,9 +380,7 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
       </div>
 
       <div class="status" id="status">상태: 초기화 중...</div>
-      <div class="note" id="notes">
-        데이터가 아직 없으면 null로 표시되고, 값이 없는 이유는 각 지표의 reason을 확인하세요.
-      </div>
+      <div class="note" id="notes">데이터가 없으면 null로 표시되고, 각 지표의 reason을 통해 원인을 확인할 수 있습니다.</div>
     </div>
 
     <script>
@@ -300,14 +394,13 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
       function showMetric(metricId, metricKey, data) {
         const valueElem = document.getElementById(metricId);
         const reasonElem = document.getElementById(`${metricId}-reason`);
-
         const rawValue = data[metricKey];
         const metricBaseKey = metricKey.replace(/_hours$|_per_week$|_value$/, '');
         const reason = (data[metricBaseKey] && data[metricBaseKey].reason) || data[metricKey]?.reason || '사유 정보가 없습니다.';
 
         if (rawValue === null || rawValue === undefined) {
           valueElem.textContent = 'null';
-          reasonElem.textContent = reason || '데이터가 아직 준비되지 않았습니다.';
+          reasonElem.textContent = reason;
           return null;
         }
 
@@ -320,35 +413,30 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
               : formatMetricValue(rawValue);
 
         valueElem.textContent = formatted;
-        reasonElem.textContent = reason || '계산 가능한 데이터가 있습니다.';
+        reasonElem.textContent = reason;
         return rawValue;
       }
 
-      function showNoDataState(data) {
-        document.getElementById('status').textContent = '상태: 실제 데이터 없음';
-        document.getElementById('notes').textContent = '실제 배포/장애 데이터가 없어 계산할 수 없습니다. 아래 reason을 확인하세요.';
+      function renderData(data) {
+        const hasValues = [
+          data.lead_time_hours,
+          data.deployment_frequency_per_week,
+          data.mttr_hours,
+          data.change_failure_rate_value,
+        ].some((value) => value !== null && value !== undefined);
+
+        if (!hasValues) {
+          document.getElementById('status').textContent = '상태: 실제 데이터 없음';
+          document.getElementById('notes').textContent = '실제 배포/장애 데이터가 없어 계산할 수 없습니다. reason을 확인하세요.';
+        } else {
+          document.getElementById('status').textContent = '상태: 정상 로딩';
+          document.getElementById('notes').textContent = '실제 데이터로 계산된 값입니다.';
+        }
+
         showMetric('lead-time', 'lead_time_hours', data);
         showMetric('deployment-frequency', 'deployment_frequency_per_week', data);
         showMetric('mttr', 'mttr_hours', data);
         showMetric('change-failure-rate', 'change_failure_rate_value', data);
-      }
-
-      function showLoadErrorState() {
-        document.getElementById('status').textContent = '상태: 파일 로딩 실패';
-        document.getElementById('notes').textContent = '브라우저 보안 때문에 로컬 파일에서 metrics.json을 불러오지 못했습니다. 임베드된 데이터로 표시합니다.';
-        const embedded = window.__DORA_DATA__ || {};
-        if (embedded && Object.keys(embedded).length > 0) {
-          showNoDataState(embedded);
-          return;
-        }
-        document.getElementById('lead-time').textContent = 'null';
-        document.getElementById('deployment-frequency').textContent = 'null';
-        document.getElementById('mttr').textContent = 'null';
-        document.getElementById('change-failure-rate').textContent = 'null';
-        document.getElementById('lead-time-reason').textContent = '파일 로딩에 실패했습니다.';
-        document.getElementById('deployment-frequency-reason').textContent = '파일 로딩에 실패했습니다.';
-        document.getElementById('mttr-reason').textContent = '파일 로딩에 실패했습니다.';
-        document.getElementById('change-failure-rate-reason').textContent = '파일 로딩에 실패했습니다.';
       }
 
       async function loadMetrics() {
@@ -356,50 +444,26 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
           const response = await fetch('./metrics.json');
           if (!response.ok) throw new Error('metrics.json not found');
           const data = await response.json();
-          const hasValues = [
-            data.lead_time_hours,
-            data.deployment_frequency_per_week,
-            data.mttr_hours,
-            data.change_failure_rate_value,
-          ].some((value) => value !== null && value !== undefined);
-
-          if (!hasValues) {
-            document.getElementById('status').textContent = '상태: 실제 데이터 없음';
-            showNoDataState(data);
-            return;
-          }
-
-          document.getElementById('status').textContent = '상태: 정상 로딩';
-          document.getElementById('notes').textContent = '파일에서 데이터를 정상적으로 불러왔습니다.';
-          showMetric('lead-time', 'lead_time_hours', data);
-          showMetric('deployment-frequency', 'deployment_frequency_per_week', data);
-          showMetric('mttr', 'mttr_hours', data);
-          showMetric('change-failure-rate', 'change_failure_rate_value', data);
-        } catch (error) {
+          renderData(data);
+        } catch {
           const embedded = window.__DORA_DATA__ || {};
           if (embedded && Object.keys(embedded).length > 0) {
-            const hasValues = [
-              embedded.lead_time_hours,
-              embedded.deployment_frequency_per_week,
-              embedded.mttr_hours,
-              embedded.change_failure_rate_value,
-            ].some((value) => value !== null && value !== undefined);
-
-            if (!hasValues) {
-              showNoDataState(embedded);
-              return;
-            }
-
             document.getElementById('status').textContent = '상태: 임베드된 데이터 사용';
-            document.getElementById('notes').textContent = '파일 로딩이 차단되어 임베드된 데이터를 사용했습니다.';
-            showMetric('lead-time', 'lead_time_hours', embedded);
-            showMetric('deployment-frequency', 'deployment_frequency_per_week', embedded);
-            showMetric('mttr', 'mttr_hours', embedded);
-            showMetric('change-failure-rate', 'change_failure_rate_value', embedded);
+            document.getElementById('notes').textContent = '브라우저 보안 때문에 로컬 파일 로딩이 막혀 임베드된 데이터를 사용했습니다.';
+            renderData(embedded);
             return;
           }
 
-          showLoadErrorState();
+          document.getElementById('status').textContent = '상태: 파일 로딩 실패';
+          document.getElementById('notes').textContent = '로컬 파일에서 metrics.json을 불러오지 못했고, 임베드 데이터도 없습니다.';
+          document.getElementById('lead-time').textContent = 'null';
+          document.getElementById('deployment-frequency').textContent = 'null';
+          document.getElementById('mttr').textContent = 'null';
+          document.getElementById('change-failure-rate').textContent = 'null';
+          document.getElementById('lead-time-reason').textContent = '파일 로딩에 실패했습니다.';
+          document.getElementById('deployment-frequency-reason').textContent = '파일 로딩에 실패했습니다.';
+          document.getElementById('mttr-reason').textContent = '파일 로딩에 실패했습니다.';
+          document.getElementById('change-failure-rate-reason').textContent = '파일 로딩에 실패했습니다.';
         }
       }
 
@@ -419,8 +483,9 @@ def main() -> None:
     report_path = repo_root / "weekly-report.md"
     dashboard_path = repo_root / "dashboard.html"
 
-    deployments = load_json(deployment_path)
-    incidents = load_json(incident_path)
+    records = append_repository_records(repo_root)
+    deployments = records["deployments"]
+    incidents = records["incidents"]
 
     metrics = calculate_dora_metrics(deployments, incidents, days=7)
 

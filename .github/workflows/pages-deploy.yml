@@ -1,0 +1,97 @@
+name: GitHub Pages Deploy and Metrics
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  issues: read
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Create static site if needed
+        run: |
+          if [ ! -f index.html ]; then
+            cat > index.html <<'HTML'
+            <!DOCTYPE html>
+            <html lang="ko">
+              <head>
+                <meta charset="UTF-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                <title>DORA Demo Web App</title>
+              </head>
+              <body>
+                <h1>DORA Demo Site</h1>
+                <p>GitHub Pages deployment for DORA tracking.</p>
+              </body>
+            </html>
+            HTML
+          fi
+
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
+
+      - name: Record deployment metadata
+        id: record
+        shell: bash
+        run: |
+          mkdir -p data
+          COMMIT_TS=$(git log -1 --format=%cI HEAD)
+          DEPLOY_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cat > data/deployments.json <<JSON
+          [
+            {
+              "id": "pages-${GITHUB_RUN_ID}",
+              "status": "success",
+              "commit_sha": "${GITHUB_SHA}",
+              "commit_timestamp": "${COMMIT_TS}",
+              "deployed_at": "${DEPLOY_TS}",
+              "environment": "github-pages",
+              "source": "github-pages",
+              "url": "${{ steps.deploy.outputs.page_url }}"
+            }
+          ]
+          JSON
+
+      - name: Generate DORA metrics
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SERVER_URL: https://api.github.com
+        run: python metrics.py
+
+      - name: Upload metrics artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dora-metrics
+          path: |
+            metrics.json
+            weekly-report.md
+            dashboard.html
+          if-no-files-found: warn

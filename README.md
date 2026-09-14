@@ -88,10 +88,20 @@ Git과 GitHub 실습용 저장소입니다. 이 저장소는 GitHub Actions를 �
 - `resolved_at`: 장애 복구 완료 시각
 
 ### 실 운영에서의 추천 기록 방식
-- GitHub Releases 또는 Deployments API를 활용해 배포 기록을 자동화
-- GitHub Issues 또는 프로젝트 보드를 이용해 장애 이슈 등록
-- 외부 모니터링 도구가 있으면 해당 데이터를 export해 JSON으로 변환
-- 이 저장소는 실 배포·장애 API 연결이 아직 없으므로 현재는 JSON 파일 기반으로 동작합니다.
+- GitHub Pages 배포 워크플로우가 배포 시각과 커밋 SHA를 `data/deployments.json`에 기록합니다.
+- GitHub Issues를 이용해 장애를 기록하고, `incident`/`production`/`bug` 라벨을 붙여 MTTR 계산에 사용합니다.
+- GitHub Actions에서 `GITHUB_TOKEN`을 사용해 Issues를 조회하고, `started_at`과 `resolved_at`을 비교해 복구 시간을 계산합니다.
+- 실제 데이터가 없으면 `null`과 `reason`을 유지하며, 값은 임의로 만들어 넣지 않습니다.
+
+### GitHub Pages 실제 배포 연동 규칙
+- 배포 기록은 코드 변경이 있거나 GitHub Pages 배포 workflow가 실행될 때 생성됩니다.
+- `commit_timestamp`는 커밋 시각을 기준으로 사용하고, `deployed_at`은 실제 배포 완료 시각을 기록합니다.
+- Lead Time은 작업 시작 시점이 아니라 코드 커밋 시점부터 운영 배포 성공까지의 시간으로 계산합니다.
+
+### 장애 기록 규칙
+- 장애 Issue는 `incident`, `production`, `bug` 라벨 중 하나 이상을 달아야 자동 집계 대상이 됩니다.
+- `started_at`은 이슈 생성 시각, `resolved_at`는 종료 시각입니다.
+- 관련된 배포가 있으면 `deployment` 기록과 연계해 더 정확한 운영 분석이 가능합니다.
 
 ## 저장소 구조
 
