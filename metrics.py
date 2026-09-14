@@ -2,7 +2,7 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
@@ -94,7 +94,11 @@ def calculate_change_failure_rate(deployments: List[Dict[str, Any]]) -> Optional
 
 
 def calculate_dora_metrics(
-    deployments: List[Dict[str, Any]], incidents: List[Dict[str, Any]], days: int = 7, reference_time: Optional[str] = None
+    deployments: List[Dict[str, Any]],
+    incidents: List[Dict[str, Any]],
+    days: int = 7,
+    reference_time: Optional[str] = None,
+    collection_errors: Optional[List[Dict[str, Any]]] = None,
 ):
     deployments = deployments or []
     incidents = incidents or []
@@ -153,6 +157,7 @@ def calculate_dora_metrics(
         "change_failure_rate_value": change_failure_rate_value,
         "window_days": days,
         "reference_time": reference_time or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "collection_errors": collection_errors or [],
     }
 
 
@@ -169,9 +174,23 @@ def load_json(path: Path) -> List[Dict[str, Any]]:
         return []
 
 
-def fetch_github_pages_deployments(repo: str) -> List[Dict[str, Any]]:
+def api_error(source: str, error: Exception) -> Dict[str, Any]:
+    import urllib.error
+
+    if isinstance(error, urllib.error.HTTPError):
+        detail = error.read().decode("utf-8", errors="replace")
+        return {
+            "source": source,
+            "type": "http_error",
+            "status": error.code,
+            "message": detail or str(error.reason),
+        }
+    return {"source": source, "type": "request_error", "message": str(error)}
+
+
+def fetch_github_pages_deployments(repo: str) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
     if not repo or not GITHUB_TOKEN:
-        return []
+        return [], {"source": "github_deployments", "type": "configuration_error", "message": "GITHUB_TOKEN or GITHUB_REPOSITORY is missing."}
 
     url = f"{GITHUB_SERVER_URL}/repos/{repo}/deployments"
     headers = {
@@ -207,16 +226,16 @@ def fetch_github_pages_deployments(repo: str) -> List[Dict[str, Any]]:
                     "url": entry.get("url") or entry.get("statuses_url"),
                 }
             )
-        return items
-    except Exception:
-        return []
+        return items, None
+    except Exception as error:
+        return [], api_error("github_deployments", error)
 
 
-def fetch_github_issues_incidents(repo: str) -> List[Dict[str, Any]]:
+def fetch_github_issues_incidents(repo: str) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
     if not repo or not GITHUB_TOKEN:
-        return []
+        return [], {"source": "github_issues", "type": "configuration_error", "message": "GITHUB_TOKEN or GITHUB_REPOSITORY is missing."}
 
-    labels = ["incident", "bug", "production"]
+    labels = ["incident"]
     result: List[Dict[str, Any]] = []
     seen_ids = set()
 
@@ -257,28 +276,34 @@ def fetch_github_issues_incidents(repo: str) -> List[Dict[str, Any]]:
                         "issue_url": issue.get("html_url"),
                     }
                 )
-        return result
-    except Exception:
-        return []
+        return result, None
+    except Exception as error:
+        return [], api_error("github_issues", error)
 
 
-def append_repository_records(repo_root: Path) -> Dict[str, List[Dict[str, Any]]]:
+def append_repository_records(repo_root: Path) -> Dict[str, Any]:
     deployment_path = repo_root / "data" / "deployments.json"
     incident_path = repo_root / "data" / "incidents.json"
 
     repo_name = GITHUB_REPOSITORY or ""
     deployments = load_json(deployment_path)
     incidents = load_json(incident_path)
+    collection_errors: List[Dict[str, Any]] = []
 
     if repo_name:
-        api_deployments = fetch_github_pages_deployments(repo_name)
+        api_deployments, deployment_error = fetch_github_pages_deployments(repo_name)
         if api_deployments:
             deployments = api_deployments + deployments
-        api_incidents = fetch_github_issues_incidents(repo_name)
+        if deployment_error:
+            collection_errors.append(deployment_error)
+
+        api_incidents, incident_error = fetch_github_issues_incidents(repo_name)
         if api_incidents:
             incidents = api_incidents + incidents
+        if incident_error:
+            collection_errors.append(incident_error)
 
-    return {"deployments": deployments, "incidents": incidents}
+    return {"deployments": deployments, "incidents": incidents, "collection_errors": collection_errors}
 
 
 def build_weekly_report(metrics: Dict[str, Any]) -> str:
@@ -307,13 +332,26 @@ def build_weekly_report(metrics: Dict[str, Any]) -> str:
         "## Data Sources",
         "",
         "- Deployment events are sourced from GitHub Pages workflow records and repository JSON files.",
-        "- Incident records are sourced from GitHub Issues with incident/bug/production labels and repository JSON files.",
+        "- Incident records are sourced only from GitHub Issues with the incident label and repository JSON files.",
         "- If data is missing, values stay null and the reason field explains why.",
+        "",
+        "## Collection Errors",
+        "",
+    ]
+    errors = metrics.get("collection_errors", [])
+    if errors:
+        lines.extend(
+            f"- {error.get('source')}: {error.get('type')} ({error.get('status', 'n/a')}) - {error.get('message')}"
+            for error in errors
+        )
+    else:
+        lines.append("- None")
+    lines.extend([
         "",
         "## Notes",
         "",
         "Empty operational data is intentionally kept as null instead of fabricated values.",
-    ]
+    ])
     return "\n".join(lines) + "\n"
 
 
@@ -418,6 +456,7 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
       }
 
       function renderData(data) {
+                const collectionErrors = data.collection_errors || [];
         const hasValues = [
           data.lead_time_hours,
           data.deployment_frequency_per_week,
@@ -425,7 +464,10 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
           data.change_failure_rate_value,
         ].some((value) => value !== null && value !== undefined);
 
-        if (!hasValues) {
+                if (collectionErrors.length > 0) {
+                    document.getElementById('status').textContent = '상태: API 데이터 수집 오류';
+                    document.getElementById('notes').textContent = collectionErrors.map((error) => `${error.source}: ${error.type} (${error.status || 'n/a'}) - ${error.message}`).join(' | ');
+                } else if (!hasValues) {
           document.getElementById('status').textContent = '상태: 실제 데이터 없음';
           document.getElementById('notes').textContent = '실제 배포/장애 데이터가 없어 계산할 수 없습니다. reason을 확인하세요.';
         } else {
@@ -487,7 +529,7 @@ def main() -> None:
     deployments = records["deployments"]
     incidents = records["incidents"]
 
-    metrics = calculate_dora_metrics(deployments, incidents, days=7)
+    metrics = calculate_dora_metrics(deployments, incidents, days=7, collection_errors=records["collection_errors"])
 
     output_path.write_text(json.dumps(metrics, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     report_path.write_text(build_weekly_report(metrics), encoding="utf-8")

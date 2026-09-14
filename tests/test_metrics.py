@@ -1,5 +1,8 @@
 import unittest
+import urllib.error
+from unittest.mock import patch
 
+import metrics
 from metrics import build_weekly_report, calculate_dora_metrics
 
 
@@ -42,6 +45,42 @@ class DORAMetricsTest(unittest.TestCase):
         self.assertIn("reason", report.lower())
         self.assertIn("Lead Time", report)
         self.assertIn("MTTR", report)
+
+    def test_collection_errors_are_visible_in_report(self):
+        metrics = calculate_dora_metrics(
+            [],
+            [],
+            collection_errors=[
+                {
+                    "source": "github_deployments",
+                    "type": "http_error",
+                    "status": 403,
+                    "message": "Resource not accessible by integration",
+                }
+            ],
+        )
+        report = build_weekly_report(metrics)
+
+        self.assertEqual(metrics["collection_errors"][0]["status"], 403)
+        self.assertIn("github_deployments", report)
+        self.assertIn("403", report)
+        self.assertIn("Resource not accessible", report)
+
+    def test_deployments_api_403_is_returned_as_error(self):
+        error = urllib.error.HTTPError(
+            "https://api.github.com/repos/example/repo/deployments",
+            403,
+            "Forbidden",
+            {},
+            None,
+        )
+
+        with patch.object(metrics, "GITHUB_TOKEN", "token"), patch("urllib.request.urlopen", side_effect=error):
+            deployments, collection_error = metrics.fetch_github_pages_deployments("example/repo")
+
+        self.assertEqual(deployments, [])
+        self.assertEqual(collection_error["type"], "http_error")
+        self.assertEqual(collection_error["status"], 403)
 
 
 if __name__ == "__main__":

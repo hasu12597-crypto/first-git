@@ -24,41 +24,12 @@
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
         gap: 16px;
       }
-      .card {
-        background: white;
-        border-radius: 12px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
-        padding: 20px;
-      }
-      .label {
-        font-size: 12px;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-      }
-      .value {
-        font-size: 28px;
-        font-weight: 700;
-        margin-top: 12px;
-      }
-      .reason {
-        margin-top: 10px;
-        font-size: 13px;
-        color: #4b5563;
-        line-height: 1.4;
-      }
-      .note {
-        margin-top: 20px;
-        padding: 16px 20px;
-        background: #eef6ff;
-        border-left: 4px solid #3b82f6;
-        border-radius: 8px;
-      }
-      .status {
-        margin-top: 16px;
-        font-size: 14px;
-        font-weight: 600;
-      }
+      .card { background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.06); padding: 20px; }
+      .label { font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.08em; }
+      .value { font-size: 28px; font-weight: 700; margin-top: 12px; }
+      .reason { margin-top: 10px; font-size: 13px; color: #4b5563; line-height: 1.4; }
+      .note { margin-top: 20px; padding: 16px 20px; background: #eef6ff; border-left: 4px solid #3b82f6; border-radius: 8px; }
+      .status { margin-top: 16px; font-size: 14px; font-weight: 600; }
     </style>
   </head>
   <body>
@@ -88,13 +59,11 @@
       </div>
 
       <div class="status" id="status">상태: 초기화 중...</div>
-      <div class="note" id="notes">
-        데이터가 아직 없으면 null로 표시되고, 값이 없는 이유는 각 지표의 reason을 확인하세요.
-      </div>
+      <div class="note" id="notes">데이터가 없으면 null로 표시되고, 각 지표의 reason을 통해 원인을 확인할 수 있습니다.</div>
     </div>
 
     <script>
-      window.__DORA_DATA__ = {"lead_time": {"metric": "lead_time", "value": null, "unit": "hours", "reason": "No valid deployment start/end timestamps found for lead time calculation."}, "deployment_frequency": {"metric": "deployment_frequency", "value": null, "unit": "per_week", "reason": "No valid deployment events found in the selected time window."}, "mttr": {"metric": "mttr", "value": null, "unit": "hours", "reason": "No valid incident start/resolution timestamps found for MTTR calculation."}, "change_failure_rate": {"metric": "change_failure_rate", "value": null, "unit": "ratio", "reason": "No deploy status records were available to compute change failure rate."}, "lead_time_hours": null, "deployment_frequency_per_week": null, "mttr_hours": null, "change_failure_rate_value": null, "window_days": 7, "reference_time": "2026-09-14T14:55:51Z"};
+      window.__DORA_DATA__ = {"lead_time": {"metric": "lead_time", "value": null, "unit": "hours", "reason": "No valid deployment start/end timestamps found for lead time calculation."}, "deployment_frequency": {"metric": "deployment_frequency", "value": null, "unit": "per_week", "reason": "No valid deployment events found in the selected time window."}, "mttr": {"metric": "mttr", "value": null, "unit": "hours", "reason": "No valid incident start/resolution timestamps found for MTTR calculation."}, "change_failure_rate": {"metric": "change_failure_rate", "value": null, "unit": "ratio", "reason": "No deploy status records were available to compute change failure rate."}, "lead_time_hours": null, "deployment_frequency_per_week": null, "mttr_hours": null, "change_failure_rate_value": null, "window_days": 7, "reference_time": "2026-09-14T15:22:59Z", "collection_errors": []};
 
       function formatMetricValue(value, suffix = '') {
         if (value === null || value === undefined) return 'null';
@@ -104,14 +73,13 @@
       function showMetric(metricId, metricKey, data) {
         const valueElem = document.getElementById(metricId);
         const reasonElem = document.getElementById(`${metricId}-reason`);
-
         const rawValue = data[metricKey];
         const metricBaseKey = metricKey.replace(/_hours$|_per_week$|_value$/, '');
         const reason = (data[metricBaseKey] && data[metricBaseKey].reason) || data[metricKey]?.reason || '사유 정보가 없습니다.';
 
         if (rawValue === null || rawValue === undefined) {
           valueElem.textContent = 'null';
-          reasonElem.textContent = reason || '데이터가 아직 준비되지 않았습니다.';
+          reasonElem.textContent = reason;
           return null;
         }
 
@@ -124,35 +92,34 @@
               : formatMetricValue(rawValue);
 
         valueElem.textContent = formatted;
-        reasonElem.textContent = reason || '계산 가능한 데이터가 있습니다.';
+        reasonElem.textContent = reason;
         return rawValue;
       }
 
-      function showNoDataState(data) {
-        document.getElementById('status').textContent = '상태: 실제 데이터 없음';
-        document.getElementById('notes').textContent = '실제 배포/장애 데이터가 없어 계산할 수 없습니다. 아래 reason을 확인하세요.';
+      function renderData(data) {
+                const collectionErrors = data.collection_errors || [];
+        const hasValues = [
+          data.lead_time_hours,
+          data.deployment_frequency_per_week,
+          data.mttr_hours,
+          data.change_failure_rate_value,
+        ].some((value) => value !== null && value !== undefined);
+
+                if (collectionErrors.length > 0) {
+                    document.getElementById('status').textContent = '상태: API 데이터 수집 오류';
+                    document.getElementById('notes').textContent = collectionErrors.map((error) => `${error.source}: ${error.type} (${error.status || 'n/a'}) - ${error.message}`).join(' | ');
+                } else if (!hasValues) {
+          document.getElementById('status').textContent = '상태: 실제 데이터 없음';
+          document.getElementById('notes').textContent = '실제 배포/장애 데이터가 없어 계산할 수 없습니다. reason을 확인하세요.';
+        } else {
+          document.getElementById('status').textContent = '상태: 정상 로딩';
+          document.getElementById('notes').textContent = '실제 데이터로 계산된 값입니다.';
+        }
+
         showMetric('lead-time', 'lead_time_hours', data);
         showMetric('deployment-frequency', 'deployment_frequency_per_week', data);
         showMetric('mttr', 'mttr_hours', data);
         showMetric('change-failure-rate', 'change_failure_rate_value', data);
-      }
-
-      function showLoadErrorState() {
-        document.getElementById('status').textContent = '상태: 파일 로딩 실패';
-        document.getElementById('notes').textContent = '브라우저 보안 때문에 로컬 파일에서 metrics.json을 불러오지 못했습니다. 임베드된 데이터로 표시합니다.';
-        const embedded = window.__DORA_DATA__ || {};
-        if (embedded && Object.keys(embedded).length > 0) {
-          showNoDataState(embedded);
-          return;
-        }
-        document.getElementById('lead-time').textContent = 'null';
-        document.getElementById('deployment-frequency').textContent = 'null';
-        document.getElementById('mttr').textContent = 'null';
-        document.getElementById('change-failure-rate').textContent = 'null';
-        document.getElementById('lead-time-reason').textContent = '파일 로딩에 실패했습니다.';
-        document.getElementById('deployment-frequency-reason').textContent = '파일 로딩에 실패했습니다.';
-        document.getElementById('mttr-reason').textContent = '파일 로딩에 실패했습니다.';
-        document.getElementById('change-failure-rate-reason').textContent = '파일 로딩에 실패했습니다.';
       }
 
       async function loadMetrics() {
@@ -160,50 +127,26 @@
           const response = await fetch('./metrics.json');
           if (!response.ok) throw new Error('metrics.json not found');
           const data = await response.json();
-          const hasValues = [
-            data.lead_time_hours,
-            data.deployment_frequency_per_week,
-            data.mttr_hours,
-            data.change_failure_rate_value,
-          ].some((value) => value !== null && value !== undefined);
-
-          if (!hasValues) {
-            document.getElementById('status').textContent = '상태: 실제 데이터 없음';
-            showNoDataState(data);
-            return;
-          }
-
-          document.getElementById('status').textContent = '상태: 정상 로딩';
-          document.getElementById('notes').textContent = '파일에서 데이터를 정상적으로 불러왔습니다.';
-          showMetric('lead-time', 'lead_time_hours', data);
-          showMetric('deployment-frequency', 'deployment_frequency_per_week', data);
-          showMetric('mttr', 'mttr_hours', data);
-          showMetric('change-failure-rate', 'change_failure_rate_value', data);
-        } catch (error) {
+          renderData(data);
+        } catch {
           const embedded = window.__DORA_DATA__ || {};
           if (embedded && Object.keys(embedded).length > 0) {
-            const hasValues = [
-              embedded.lead_time_hours,
-              embedded.deployment_frequency_per_week,
-              embedded.mttr_hours,
-              embedded.change_failure_rate_value,
-            ].some((value) => value !== null && value !== undefined);
-
-            if (!hasValues) {
-              showNoDataState(embedded);
-              return;
-            }
-
             document.getElementById('status').textContent = '상태: 임베드된 데이터 사용';
-            document.getElementById('notes').textContent = '파일 로딩이 차단되어 임베드된 데이터를 사용했습니다.';
-            showMetric('lead-time', 'lead_time_hours', embedded);
-            showMetric('deployment-frequency', 'deployment_frequency_per_week', embedded);
-            showMetric('mttr', 'mttr_hours', embedded);
-            showMetric('change-failure-rate', 'change_failure_rate_value', embedded);
+            document.getElementById('notes').textContent = '브라우저 보안 때문에 로컬 파일 로딩이 막혀 임베드된 데이터를 사용했습니다.';
+            renderData(embedded);
             return;
           }
 
-          showLoadErrorState();
+          document.getElementById('status').textContent = '상태: 파일 로딩 실패';
+          document.getElementById('notes').textContent = '로컬 파일에서 metrics.json을 불러오지 못했고, 임베드 데이터도 없습니다.';
+          document.getElementById('lead-time').textContent = 'null';
+          document.getElementById('deployment-frequency').textContent = 'null';
+          document.getElementById('mttr').textContent = 'null';
+          document.getElementById('change-failure-rate').textContent = 'null';
+          document.getElementById('lead-time-reason').textContent = '파일 로딩에 실패했습니다.';
+          document.getElementById('deployment-frequency-reason').textContent = '파일 로딩에 실패했습니다.';
+          document.getElementById('mttr-reason').textContent = '파일 로딩에 실패했습니다.';
+          document.getElementById('change-failure-rate-reason').textContent = '파일 로딩에 실패했습니다.';
         }
       }
 

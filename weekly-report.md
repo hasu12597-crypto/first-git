@@ -9,17 +9,21 @@
 
 ## Metric Definitions
 
-- Lead Time: time from the start of work to successful deployment.
+- Lead Time: time from the code commit to a successful deployment.
 - Deployment Frequency: how often deploys happen in a week.
 - MTTR: mean time to restore service after an incident.
 - Change Failure Rate: share of deployments that fail or require rollback.
 
 ## Data Sources
 
-- Deployment events are sourced from deployment records in the repository or workflow outputs.
-- Incident records are sourced from operational incident logs or manually maintained JSON files.
-- If no relevant records exist, values stay null and include the reason field.
+- Deployment events are sourced from GitHub Pages workflow records and repository JSON files.
+- Incident records are sourced only from GitHub Issues with the incident label and repository JSON files.
+- If data is missing, values stay null and the reason field explains why.
+
+## Collection Errors
+
+- None
 
 ## Notes
 
-This repository currently includes a workflow scaffold and sample files for DORA collection. Actual deployment and incident records must be populated before the metrics become meaningful.
+Empty operational data is intentionally kept as null instead of fabricated values.
