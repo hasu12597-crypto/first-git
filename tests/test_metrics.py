@@ -18,7 +18,7 @@ class DORAMetricsTest(unittest.TestCase):
         self.assertIn("reason", metrics["deployment_frequency"])
         self.assertIn("reason", metrics["mttr"])
         self.assertIn("reason", metrics["change_failure_rate"])
-        self.assertIn("completeness", metrics["change_failure_rate"]["reason"])
+        self.assertIn("completed deployment_status", metrics["change_failure_rate"]["reason"])
         self.assertIsNone(metrics["deployment_failure_rate_value"])
 
     def test_sample_data_is_calculated(self):
@@ -37,7 +37,7 @@ class DORAMetricsTest(unittest.TestCase):
         self.assertAlmostEqual(metrics["lead_time_hours"], 1.75, places=2)
         self.assertAlmostEqual(metrics["deployment_frequency_per_week"], 1.0, places=2)
         self.assertAlmostEqual(metrics["mttr_hours"], 3.0, places=2)
-        self.assertAlmostEqual(metrics["change_failure_rate_value"], 0.5, places=4)
+        self.assertAlmostEqual(metrics["change_failure_rate_value"], 50.0, places=4)
         self.assertAlmostEqual(metrics["deployment_failure_rate_value"], 0.3333333333, places=4)
 
     def test_weekly_report_includes_null_and_reason_guidance(self):
@@ -101,6 +101,7 @@ class DORAMetricsTest(unittest.TestCase):
                 "status": "failure",
                 "commit_timestamp": "2026-09-15T06:08:00Z",
                 "deployed_at": None,
+                "status_timestamp": "2026-09-15T06:08:30Z",
                 "environment": "github-pages",
             },
         ]
@@ -111,11 +112,24 @@ class DORAMetricsTest(unittest.TestCase):
 
         self.assertAlmostEqual(metrics["lead_time_hours"], 27 / 3600, places=6)
         self.assertEqual(metrics["deployment_frequency_per_week"], 1.0)
-        self.assertEqual(metrics["change_failure_rate_value"], 1.0)
+        self.assertEqual(metrics["change_failure_rate_value"], 50.0)
         self.assertEqual(metrics["deployment_failure_rate_value"], 0.5)
         self.assertEqual(metrics["deployment_evidence"]["record_count"], 2)
         self.assertEqual(metrics["deployment_evidence"]["unique_record_count"], 2)
         self.assertIn("27.0 seconds", report)
+
+    def test_non_terminal_deployment_status_is_excluded_from_cfr(self):
+        deployments = [
+            {"id": "success", "deployment_status": "success", "status_timestamp": "2026-09-15T05:00:00Z"},
+            {"id": "failure", "deployment_status": "failure", "status_timestamp": "2026-09-15T06:00:00Z"},
+            {"id": "running", "deployment_status": "in_progress"},
+        ]
+
+        metrics = calculate_dora_metrics(deployments, [])
+
+        self.assertEqual(metrics["change_failure_rate_value"], 50.0)
+        self.assertEqual(metrics["deployment_evidence"]["record_count"], 3)
+        self.assertEqual(metrics["deployment_evidence"]["status_counts"]["in_progress"], 1)
 
 
 if __name__ == "__main__":

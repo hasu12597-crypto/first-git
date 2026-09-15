@@ -34,10 +34,18 @@ Git과 GitHub 실습용 저장소입니다. 이 저장소는 GitHub Actions를 �
 - 계산 방식: 장애별 복구 시간 평균을 계산합니다.
 
 ### 4) Change Failure Rate
-- 정의: 운영에 반영된 성공 배포 중 장애, 롤백, 핫픽스 등 조치가 필요했던 배포의 비율입니다.
+- 정의: 실패한 배포 수 / 전체 배포 수 x 100입니다.
 - 의미: 배포 품질과 안정성을 보여줍니다.
-- 데이터 출처: `incident` 라벨 GitHub Issue와 배포 기록의 `id` 또는 `commit_sha` 연결입니다.
-- 계산 방식: 성공 운영 배포 중 incident Issue에 배포 ID/SHA가 연결된 고유 배포 수의 비율입니다. 연결 정보가 없거나 일부 장애가 연결되지 않으면 완전성을 보장할 수 없어 `null`입니다.
+- 데이터 출처: GitHub Deployments status API의 `deployment_status`입니다.
+- 계산 방식: 집계 기간 안의 완료된 운영 배포 중 `failure`, `failed`, `error`, `cancelled`, `partial`, `rollback` 상태 수를 전체 완료 상태 수로 나눈 뒤 100을 곱합니다.
+- 단순 CI workflow 실패는 GitHub Deployments의 운영 배포 status가 아니므로 집계하지 않습니다.
+
+집계 기준:
+- 대상: `environment=github-pages`인 GitHub Deployments의 최신 terminal status
+- 기간: 최근 7일(`window_days=7`), status 시각 또는 성공 배포 완료 시각 기준
+- 포함 상태: `success`, `failure`, `failed`, `error`, `cancelled`, `partial`, `rollback`
+- 제외 상태: `queued`, `waiting`, `in_progress`, `pending`, `unknown` 등 아직 완료되지 않았거나 운영 배포 여부를 판정할 수 없는 상태
+- 기록이 없으면 CFR은 `null`과 사유를 표시합니다.
 
 ### Deployment Job Failure Rate
 - 정의: 전체 완료된 배포 작업 중 `failure`, `error`, `rollback`, `cancelled` 등으로 끝난 작업의 비율입니다.
@@ -64,6 +72,7 @@ Git과 GitHub 실습용 저장소입니다. 이 저장소는 GitHub Actions를 �
 필드 설명:
 - `id`: 배포 식별자
 - `status`: `success`, `failed`, `failure`, `partial`, `rollback`, `error`, `cancelled`
+- `deployment_status`: GitHub Deployments status API에서 확인한 terminal 상태
 - `started_at`: 변경 작업 시작 시각
 - `deployed_at`: 실제 배포 완료 시각
 
@@ -114,11 +123,10 @@ Deployment SHA: abc123...
 ```
 
 - 배포 ID를 모르면 `Deployment SHA`만 기록해도 됩니다. 해당 SHA가 배포 기록의 `commit_sha`와 일치하는지 확인합니다.
-- 같은 배포를 여러 incident Issue가 참조해도 deployment ID/SHA 기준으로 한 번만 CFR에 포함합니다.
-- `incident` Issue가 없거나, Issue는 있지만 배포 ID/SHA가 없거나 일치하지 않으면 CFR은 `null`이며 사유에 완전성 판단 불가를 표시합니다.
+- incident Issue와 배포 ID/SHA 연결은 MTTR 및 장애 분석을 위한 보조 기록입니다. 수업 기준의 CFR은 이 연결 유무가 아니라 `deployment_status` 성공·실패를 사용합니다.
 
 ### GitHub Actions 권한
-- `metrics.yml`: `contents: read`, `issues: read`만 사용합니다. 저장소 쓰기 권한, Pull Request 생성·승인 권한은 부여하지 않습니다.
+- `metrics.yml`: `contents: read`, `deployments: read`, `issues: read`만 사용합니다. 저장소 쓰기 권한, Pull Request 생성·승인 권한은 부여하지 않습니다.
 - GitHub Deployments API 조회에는 `deployments: read`가 필요하므로 두 workflow에 해당 권한을 추가합니다. 쓰기 권한은 사용하지 않습니다.
 - `pages-deploy.yml`: Pages 게시에 필요한 `pages: write`, OIDC 인증에 필요한 `id-token: write`, 소스와 배포·장애 기록 조회에 필요한 `contents: read`, `deployments: read`, `issues: read`만 사용합니다.
 - 두 workflow 모두 job 단위로 권한을 선언하며, `pull-requests` 권한과 전체 저장소 `write` 권한은 선언하지 않습니다.
@@ -132,7 +140,7 @@ Deployment SHA: abc123...
 
 ### 계산 근거 확인
 - `metrics.json`의 `deployment_evidence`에 전체 건수, 고유 건수, 중복 ID, 상태별 건수, 배포별 커밋 시각·성공 시각·Lead Time 초가 기록됩니다.
-- 현재 대상 저장소의 실제 공개 API 결과는 배포 4건, 고유 ID 4건, 중복 0건, `success` 2건과 `failure` 2건입니다. 따라서 성공한 운영 배포 빈도는 2.0/week, 배포 작업 실패율은 2/4 = 0.5입니다. incident 연결이 없으므로 DORA Change Failure Rate는 `null`입니다.
+- 현재 대상 저장소의 실제 공개 API 결과는 배포 5건, 고유 ID 5건, 중복 0건, `success` 3건과 `failure` 2건입니다. 수업 기준 CFR은 `2 / 5 x 100 = 40%`입니다.
 - `incident` 라벨 Issue가 없으면 장애 데이터는 0건이며, MTTR은 `null`로 남습니다. 장애 데이터를 만들거나 예시 데이터를 섞지 않습니다.
 
 ### 404 발생 시 GitHub 확인 절차

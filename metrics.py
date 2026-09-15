@@ -10,6 +10,9 @@ from typing import Any, Dict, List, Optional, Tuple
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")
 GITHUB_API_URL = os.getenv("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+SUCCESS_DEPLOYMENT_STATUSES = {"success"}
+FAILED_DEPLOYMENT_STATUSES = {"failed", "failure", "error", "cancelled", "partial", "rollback"}
+IGNORED_DEPLOYMENT_STATUSES = {"queued", "waiting", "in_progress", "pending", "unknown"}
 
 
 def parse_iso8601(value: Optional[str]) -> Optional[datetime]:
@@ -26,11 +29,11 @@ def parse_iso8601(value: Optional[str]) -> Optional[datetime]:
 def calculate_lead_time_hours(deployments: List[Dict[str, Any]]) -> Optional[float]:
     valid = []
     for item in deployments:
-        status = str(item.get("status", "")).lower()
+        status = str(item.get("deployment_status", item.get("status", ""))).lower()
         commit_time = parse_iso8601(item.get("commit_timestamp")) or parse_iso8601(item.get("started_at"))
         deployed_at = parse_iso8601(item.get("deployed_at"))
 
-        if status in {"failed", "failure", "error", "cancelled", "partial", "rollback"}:
+        if status in FAILED_DEPLOYMENT_STATUSES:
             continue
         if commit_time and deployed_at and deployed_at >= commit_time:
             valid.append((deployed_at - commit_time).total_seconds() / 3600)
@@ -55,7 +58,7 @@ def calculate_deployment_frequency_per_week(
     start = end - timedelta(days=days)
     count = 0
     for item in deployments:
-        if str(item.get("status", "")).lower() != "success":
+        if str(item.get("deployment_status", item.get("status", ""))).lower() != "success":
             continue
         deployed_at = parse_iso8601(item.get("deployed_at"))
         if deployed_at and start <= deployed_at <= end:
@@ -86,10 +89,10 @@ def calculate_deployment_failure_rate(deployments: List[Dict[str, Any]]) -> Opti
     total = 0
     failed = 0
     for item in deployments:
-        status = str(item.get("status", "")).lower()
-        if status in {"success", "failed", "failure", "error", "cancelled", "partial", "rollback"}:
+        status = str(item.get("deployment_status", item.get("status", ""))).lower()
+        if status in SUCCESS_DEPLOYMENT_STATUSES | FAILED_DEPLOYMENT_STATUSES:
             total += 1
-            if status in {"failed", "failure", "error", "cancelled", "partial", "rollback"}:
+            if status in FAILED_DEPLOYMENT_STATUSES:
                 failed += 1
 
     if total == 0:
@@ -97,39 +100,38 @@ def calculate_deployment_failure_rate(deployments: List[Dict[str, Any]]) -> Opti
     return failed / total
 
 
-def calculate_change_failure_rate(
-    deployments: List[Dict[str, Any]], incidents: List[Dict[str, Any]]
-) -> Tuple[Optional[float], str, Dict[str, Any]]:
-    successful = [item for item in deployments if str(item.get("status", "")).lower() == "success"]
-    if not successful:
-        return None, "No successful operational deployments are available as the CFR denominator; change-failure completeness cannot be determined.", {"linked_deployment_ids": []}
-    if not incidents:
-        return None, "No incident issues with deployment ID/SHA links were collected; change-failure completeness cannot be determined.", {"linked_deployment_ids": []}
+def calculate_change_failure_rate(deployments: List[Dict[str, Any]]) -> Tuple[Optional[float], str]:
+    return calculate_change_failure_rate_for_window(deployments)
 
-    linked_ids = set()
-    unlinked_incidents = []
-    for incident in incidents:
-        incident_ids = {str(value) for value in incident.get("deployment_ids", [])}
-        incident_shas = {str(value).lower() for value in incident.get("deployment_shas", [])}
-        matches = [
-            item for item in successful
-            if str(item.get("id")) in incident_ids
-            or (item.get("commit_sha") and str(item.get("commit_sha")).lower() in incident_shas)
-        ]
-        if not matches:
-            unlinked_incidents.append(str(incident.get("id", "unknown")))
-        linked_ids.update(str(item.get("id")) for item in matches)
 
-    if unlinked_incidents:
-        return None, "Some incident issues have no matching deployment ID/SHA; change-failure completeness cannot be determined.", {
-            "linked_deployment_ids": sorted(linked_ids),
-            "unlinked_incident_ids": unlinked_incidents,
-        }
+def calculate_change_failure_rate_for_window(
+    deployments: List[Dict[str, Any]], days: int = 7, reference_time: Optional[str] = None
+) -> Tuple[Optional[float], str]:
+    if reference_time is None:
+        reference_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    end = parse_iso8601(reference_time)
+    if end is None:
+        return None, "The Change Failure Rate reporting reference time is invalid."
+    start = end - timedelta(days=days)
 
-    return len(linked_ids) / len(successful), "Share of successful operational deployments linked to incident issues by deployment ID or commit SHA.", {
-        "linked_deployment_ids": sorted(linked_ids),
-        "unlinked_incident_ids": [],
-    }
+    completed = [
+        item for item in deployments
+        if str(item.get("deployment_status", item.get("status", ""))).lower() in SUCCESS_DEPLOYMENT_STATUSES | FAILED_DEPLOYMENT_STATUSES
+        and (
+            event_time := parse_iso8601(
+                item.get("status_timestamp") or item.get("deployed_at") or item.get("deployment_created_at")
+            )
+        )
+        and start <= event_time <= end
+    ]
+    if not completed:
+        return None, f"No completed deployment_status records (success or failure) were available in the last {days} days for Change Failure Rate."
+
+    failed = sum(
+        1 for item in completed
+        if str(item.get("deployment_status", item.get("status", ""))).lower() in FAILED_DEPLOYMENT_STATUSES
+    )
+    return failed / len(completed) * 100, "Failed deployment count divided by all completed deployment count, multiplied by 100."
 
 
 def build_deployment_evidence(deployments: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -143,7 +145,7 @@ def build_deployment_evidence(deployments: List[Dict[str, Any]]) -> Dict[str, An
         if deployment_id in seen_ids:
             duplicate_ids.append(deployment_id)
         seen_ids.add(deployment_id)
-        status = str(item.get("status", "unknown")).lower()
+        status = str(item.get("deployment_status", item.get("status", "unknown"))).lower()
         status_counts[status] = status_counts.get(status, 0) + 1
         commit_time = parse_iso8601(item.get("commit_timestamp"))
         deployed_at = parse_iso8601(item.get("deployed_at"))
@@ -155,6 +157,7 @@ def build_deployment_evidence(deployments: List[Dict[str, Any]]) -> Dict[str, An
                 "id": deployment_id,
                 "commit_sha": item.get("commit_sha"),
                 "status": status,
+                "deployment_status": item.get("deployment_status", status),
                 "commit_timestamp": item.get("commit_timestamp"),
                 "deployed_at": item.get("deployed_at"),
                 "lead_time_seconds": duration_seconds,
@@ -186,7 +189,9 @@ def calculate_dora_metrics(
     deployment_frequency = calculate_deployment_frequency_per_week(deployments, days=days, reference_time=reference_time)
     mttr = calculate_mttr_hours(incidents)
     deployment_failure_rate_value = calculate_deployment_failure_rate(deployments)
-    change_failure_rate_value, cfr_reason, cfr_evidence = calculate_change_failure_rate(deployments, incidents)
+    change_failure_rate_value, cfr_reason = calculate_change_failure_rate_for_window(
+        deployments, days=days, reference_time=reference_time
+    )
 
     def metric_payload(name: str, value: Optional[float], reason: str) -> Dict[str, Any]:
         if name in {"lead_time", "mttr"}:
@@ -194,7 +199,7 @@ def calculate_dora_metrics(
         elif name == "deployment_frequency":
             unit = "per_week"
         else:
-            unit = "ratio"
+            unit = "percent" if name == "change_failure_rate" else "ratio"
         return {"metric": name, "value": value, "unit": unit, "reason": reason}
 
     lead_time_metric = metric_payload(
@@ -248,8 +253,6 @@ def calculate_dora_metrics(
         "incident_evidence": {
             "record_count": len(incidents),
             "resolved_count": sum(1 for item in incidents if item.get("resolved_at")),
-            "linked_deployment_ids": cfr_evidence["linked_deployment_ids"],
-            "unlinked_incident_ids": cfr_evidence.get("unlinked_incident_ids", []),
         },
     }
 
@@ -348,9 +351,11 @@ def fetch_github_pages_deployments(repo: str) -> Tuple[List[Dict[str, Any]], Opt
                 {
                     "id": deployment_id,
                     "status": status,
+                    "deployment_status": status,
                     "commit_sha": commit_sha,
                     "commit_timestamp": commit_timestamp,
                     "deployed_at": deployed_at,
+                    "status_timestamp": latest_status.get("created_at") if latest_status else None,
                     "environment": environment,
                     "source": "github-pages",
                     "url": entry.get("url") or entry.get("statuses_url"),
@@ -460,6 +465,9 @@ def build_weekly_report(metrics: Dict[str, Any]) -> str:
             return "null"
         return f"{value:.2f}{suffix}"
 
+    def format_percent(value: Optional[float]) -> str:
+        return "null" if value is None else f"{value:.2f}%"
+
     lead_time_hours = metrics.get("lead_time_hours")
     if lead_time_hours is None:
         lead_time_display = "null"
@@ -476,7 +484,7 @@ def build_weekly_report(metrics: Dict[str, Any]) -> str:
         f"- Lead Time: {lead_time_display}",
         f"- Deployment Frequency: {format_value(metrics.get('deployment_frequency_per_week'), ' / week')}",
         f"- MTTR: {format_value(metrics.get('mttr_hours'), ' hours')}",
-        f"- Change Failure Rate: {format_value(metrics.get('change_failure_rate_value'))}",
+            f"- Change Failure Rate: {format_percent(metrics.get('change_failure_rate_value'))}",
         f"- Deployment Job Failure Rate: {format_value(metrics.get('deployment_failure_rate_value'))}",
         "",
         "## Metric Definitions",
@@ -484,7 +492,7 @@ def build_weekly_report(metrics: Dict[str, Any]) -> str:
         "- Lead Time: time from the code commit to a successful deployment.",
         "- Deployment Frequency: how often deploys happen in a week.",
         "- MTTR: mean time to restore service after an incident.",
-        "- Change Failure Rate: share of successful operational deployments linked to incident issues by deployment ID or commit SHA.",
+        "- Change Failure Rate: failed deployment count / all completed deployment count x 100.",
         "- Deployment Job Failure Rate: share of deployment jobs whose terminal status is failure, error, rollback, or cancellation.",
         "",
         "## Data Sources",
@@ -599,6 +607,11 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
         return `${value.toFixed(2)}${suffix}`;
       }
 
+            function formatPercent(value) {
+                if (value === null || value === undefined) return 'null';
+                return `${value.toFixed(2)}%`;
+            }
+
             function formatLeadTime(value) {
                 if (value === null || value === undefined) return 'null';
                 const seconds = value * 3600;
@@ -623,8 +636,10 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
           : metricKey === 'deployment_frequency_per_week'
             ? formatMetricValue(rawValue, ' / week')
             : metricKey === 'mttr_hours'
-              ? formatMetricValue(rawValue, ' hours')
-              : formatMetricValue(rawValue);
+                            ? formatMetricValue(rawValue, ' hours')
+                            : metricKey === 'change_failure_rate_value'
+                                ? formatPercent(rawValue)
+                                : formatMetricValue(rawValue);
 
         valueElem.textContent = formatted;
         reasonElem.textContent = reason;

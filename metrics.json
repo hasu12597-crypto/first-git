@@ -1,15 +1,15 @@
 {
   "lead_time": {
     "metric": "lead_time",
-    "value": 0.009444444444444445,
+    "value": null,
     "unit": "hours",
-    "reason": "Average time from commit to successful deployment across valid deploy records."
+    "reason": "No valid deployment start/end timestamps found for lead time calculation."
   },
   "deployment_frequency": {
     "metric": "deployment_frequency",
-    "value": 3.0,
+    "value": null,
     "unit": "per_week",
-    "reason": "Count of deployment records in the last 7-day window, normalized to one week."
+    "reason": "No valid deployment events found in the selected time window."
   },
   "mttr": {
     "metric": "mttr",
@@ -20,84 +20,33 @@
   "change_failure_rate": {
     "metric": "change_failure_rate",
     "value": null,
-    "unit": "ratio",
-    "reason": "No incident issues with deployment ID/SHA links were collected; change-failure completeness cannot be determined."
+    "unit": "percent",
+    "reason": "No completed deployment_status records (success or failure) were available in the last 7 days for Change Failure Rate."
   },
   "deployment_failure_rate": {
     "metric": "deployment_failure_rate",
-    "value": 0.4,
+    "value": null,
     "unit": "ratio",
-    "reason": "Failed deployment job share among all completed deployment jobs."
+    "reason": "No deploy status records were available to compute deployment job failure rate."
   },
-  "lead_time_hours": 0.009444444444444445,
-  "deployment_frequency_per_week": 3.0,
+  "lead_time_hours": null,
+  "deployment_frequency_per_week": null,
   "mttr_hours": null,
   "change_failure_rate_value": null,
-  "deployment_failure_rate_value": 0.4,
+  "deployment_failure_rate_value": null,
   "window_days": 7,
-  "reference_time": "2026-09-15T06:21:04Z",
+  "reference_time": "2026-09-15T06:42:19Z",
   "collection_errors": [],
   "deployment_evidence": {
-    "record_count": 5,
-    "unique_record_count": 5,
+    "record_count": 0,
+    "unique_record_count": 0,
     "duplicate_ids": [],
-    "status_counts": {
-      "success": 3,
-      "failure": 2
-    },
-    "successful_operational_deployments": 3,
-    "records": [
-      {
-        "id": "6452921063",
-        "commit_sha": "4852a64079bf962bea36ec5f182cba108d20818b",
-        "status": "success",
-        "commit_timestamp": "2026-09-15T06:16:43Z",
-        "deployed_at": "2026-09-15T06:17:23Z",
-        "lead_time_seconds": 40.0,
-        "environment": "github-pages"
-      },
-      {
-        "id": "6452799378",
-        "commit_sha": "cf65ebcfba05ccfb73993247cf7f2826038fe6b9",
-        "status": "success",
-        "commit_timestamp": "2026-09-15T06:06:55Z",
-        "deployed_at": "2026-09-15T06:07:27Z",
-        "lead_time_seconds": 32.0,
-        "environment": "github-pages"
-      },
-      {
-        "id": "6452722621",
-        "commit_sha": "b1aef48fb141d158243090c333b00781fad00bab",
-        "status": "success",
-        "commit_timestamp": "2026-09-15T06:00:26Z",
-        "deployed_at": "2026-09-15T06:00:56Z",
-        "lead_time_seconds": 30.0,
-        "environment": "github-pages"
-      },
-      {
-        "id": "6440421716",
-        "commit_sha": "ac7d6adc20737f31357c66287efc43182138ba55",
-        "status": "failure",
-        "commit_timestamp": "2026-09-14T15:26:11Z",
-        "deployed_at": null,
-        "lead_time_seconds": null,
-        "environment": "github-pages"
-      },
-      {
-        "id": "6440094750",
-        "commit_sha": "d7aba42ec9a302bc307ba4c1a68d29c671765483",
-        "status": "failure",
-        "commit_timestamp": "2026-09-14T15:10:07Z",
-        "deployed_at": null,
-        "lead_time_seconds": null,
-        "environment": "github-pages"
-      }
-    ]
+    "status_counts": {},
+    "successful_operational_deployments": 0,
+    "records": []
   },
   "incident_evidence": {
     "record_count": 0,
-    "resolved_count": 0,
-    "linked_deployment_ids": [],
-    "unlinked_incident_ids": []
+    "resolved_count": 0
   }
 }
