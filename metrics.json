@@ -1,15 +1,15 @@
 {
   "lead_time": {
     "metric": "lead_time",
-    "value": null,
+    "value": 0.008611111111111111,
     "unit": "hours",
-    "reason": "No valid deployment start/end timestamps found for lead time calculation."
+    "reason": "Average time from commit to successful deployment across valid deploy records."
   },
   "deployment_frequency": {
     "metric": "deployment_frequency",
-    "value": null,
+    "value": 2.0,
     "unit": "per_week",
-    "reason": "No valid deployment events found in the selected time window."
+    "reason": "Count of deployment records in the last 7-day window, normalized to one week."
   },
   "mttr": {
     "metric": "mttr",
@@ -19,15 +19,67 @@
   },
   "change_failure_rate": {
     "metric": "change_failure_rate",
-    "value": null,
+    "value": 0.5,
     "unit": "ratio",
-    "reason": "No deploy status records were available to compute change failure rate."
+    "reason": "Failed deploy share among all completed deploy records."
   },
-  "lead_time_hours": null,
-  "deployment_frequency_per_week": null,
+  "lead_time_hours": 0.008611111111111111,
+  "deployment_frequency_per_week": 2.0,
   "mttr_hours": null,
-  "change_failure_rate_value": null,
+  "change_failure_rate_value": 0.5,
   "window_days": 7,
-  "reference_time": "2026-09-15T06:06:00Z",
-  "collection_errors": []
+  "reference_time": "2026-09-15T06:15:39Z",
+  "collection_errors": [],
+  "deployment_evidence": {
+    "record_count": 4,
+    "unique_record_count": 4,
+    "duplicate_ids": [],
+    "status_counts": {
+      "success": 2,
+      "failure": 2
+    },
+    "successful_operational_deployments": 2,
+    "records": [
+      {
+        "id": "6452799378",
+        "commit_sha": "cf65ebcfba05ccfb73993247cf7f2826038fe6b9",
+        "status": "success",
+        "commit_timestamp": "2026-09-15T06:06:55Z",
+        "deployed_at": "2026-09-15T06:07:27Z",
+        "lead_time_seconds": 32.0,
+        "environment": "github-pages"
+      },
+      {
+        "id": "6452722621",
+        "commit_sha": "b1aef48fb141d158243090c333b00781fad00bab",
+        "status": "success",
+        "commit_timestamp": "2026-09-15T06:00:26Z",
+        "deployed_at": "2026-09-15T06:00:56Z",
+        "lead_time_seconds": 30.0,
+        "environment": "github-pages"
+      },
+      {
+        "id": "6440421716",
+        "commit_sha": "ac7d6adc20737f31357c66287efc43182138ba55",
+        "status": "failure",
+        "commit_timestamp": "2026-09-14T15:26:11Z",
+        "deployed_at": null,
+        "lead_time_seconds": null,
+        "environment": "github-pages"
+      },
+      {
+        "id": "6440094750",
+        "commit_sha": "d7aba42ec9a302bc307ba4c1a68d29c671765483",
+        "status": "failure",
+        "commit_timestamp": "2026-09-14T15:10:07Z",
+        "deployed_at": null,
+        "lead_time_seconds": null,
+        "environment": "github-pages"
+      }
+    ]
+  },
+  "incident_evidence": {
+    "record_count": 0,
+    "resolved_count": 0
+  }
 }

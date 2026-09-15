@@ -33,7 +33,7 @@ class DORAMetricsTest(unittest.TestCase):
         metrics = calculate_dora_metrics(deployments, incidents, days=7, reference_time="2026-09-14T00:00:00Z")
 
         self.assertAlmostEqual(metrics["lead_time_hours"], 1.75, places=2)
-        self.assertAlmostEqual(metrics["deployment_frequency_per_week"], 2.0, places=2)
+        self.assertAlmostEqual(metrics["deployment_frequency_per_week"], 1.0, places=2)
         self.assertAlmostEqual(metrics["mttr_hours"], 3.0, places=2)
         self.assertAlmostEqual(metrics["change_failure_rate_value"], 0.3333333333, places=4)
 
@@ -82,6 +82,35 @@ class DORAMetricsTest(unittest.TestCase):
         self.assertEqual(collection_error["type"], "http_error")
         self.assertEqual(collection_error["status"], 403)
         self.assertEqual(collection_error["url"], "https://api.github.com/repos/example/repo/deployments")
+
+    def test_evidence_and_subminute_lead_time_are_explicit(self):
+        deployments = [
+            {
+                "id": "pages-1",
+                "status": "success",
+                "commit_sha": "abc",
+                "commit_timestamp": "2026-09-15T06:07:00Z",
+                "deployed_at": "2026-09-15T06:07:27Z",
+                "environment": "github-pages",
+            },
+            {
+                "id": "pages-2",
+                "status": "failure",
+                "commit_timestamp": "2026-09-15T06:08:00Z",
+                "deployed_at": None,
+                "environment": "github-pages",
+            },
+        ]
+
+        metrics = calculate_dora_metrics(deployments, [], reference_time="2026-09-15T06:10:00Z")
+        report = build_weekly_report(metrics)
+
+        self.assertAlmostEqual(metrics["lead_time_hours"], 27 / 3600, places=6)
+        self.assertEqual(metrics["deployment_frequency_per_week"], 1.0)
+        self.assertEqual(metrics["change_failure_rate_value"], 0.5)
+        self.assertEqual(metrics["deployment_evidence"]["record_count"], 2)
+        self.assertEqual(metrics["deployment_evidence"]["unique_record_count"], 2)
+        self.assertIn("27.0 seconds", report)
 
 
 if __name__ == "__main__":

@@ -2,10 +2,10 @@
 
 ## Summary
 
-- Lead Time: null
-- Deployment Frequency: null
+- Lead Time: 31.0 seconds
+- Deployment Frequency: 2.00 / week
 - MTTR: null
-- Change Failure Rate: null
+- Change Failure Rate: 0.50
 
 ## Metric Definitions
 
@@ -19,6 +19,18 @@
 - Deployment events are sourced from GitHub Pages workflow records and repository JSON files.
 - Incident records are sourced only from GitHub Issues with the incident label and repository JSON files.
 - If data is missing, values stay null and the reason field explains why.
+
+## Deployment Evidence
+
+- Records: 4
+- Unique records: 4
+- Duplicate IDs: []
+- Status counts: {'success': 2, 'failure': 2}
+
+## Incident Evidence
+
+- Incident issues collected: 0
+- Resolved incidents: 0
 
 ## Collection Errors
 

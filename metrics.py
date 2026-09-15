@@ -29,7 +29,7 @@ def calculate_lead_time_hours(deployments: List[Dict[str, Any]]) -> Optional[flo
         commit_time = parse_iso8601(item.get("commit_timestamp")) or parse_iso8601(item.get("started_at"))
         deployed_at = parse_iso8601(item.get("deployed_at"))
 
-        if status in {"failed", "partial", "rollback"}:
+        if status in {"failed", "failure", "error", "cancelled", "partial", "rollback"}:
             continue
         if commit_time and deployed_at and deployed_at >= commit_time:
             valid.append((deployed_at - commit_time).total_seconds() / 3600)
@@ -54,6 +54,8 @@ def calculate_deployment_frequency_per_week(
     start = end - timedelta(days=days)
     count = 0
     for item in deployments:
+        if str(item.get("status", "")).lower() != "success":
+            continue
         deployed_at = parse_iso8601(item.get("deployed_at"))
         if deployed_at and start <= deployed_at <= end:
             count += 1
@@ -84,14 +86,54 @@ def calculate_change_failure_rate(deployments: List[Dict[str, Any]]) -> Optional
     failed = 0
     for item in deployments:
         status = str(item.get("status", "")).lower()
-        if status in {"success", "failed", "partial", "rollback"}:
+        if status in {"success", "failed", "failure", "error", "cancelled", "partial", "rollback"}:
             total += 1
-            if status in {"failed", "partial", "rollback"}:
+            if status in {"failed", "failure", "error", "cancelled", "partial", "rollback"}:
                 failed += 1
 
     if total == 0:
         return None
     return failed / total
+
+
+def build_deployment_evidence(deployments: List[Dict[str, Any]]) -> Dict[str, Any]:
+    records = []
+    seen_ids = set()
+    duplicate_ids = []
+    status_counts: Dict[str, int] = {}
+
+    for item in deployments:
+        deployment_id = str(item.get("id", ""))
+        if deployment_id in seen_ids:
+            duplicate_ids.append(deployment_id)
+        seen_ids.add(deployment_id)
+        status = str(item.get("status", "unknown")).lower()
+        status_counts[status] = status_counts.get(status, 0) + 1
+        commit_time = parse_iso8601(item.get("commit_timestamp"))
+        deployed_at = parse_iso8601(item.get("deployed_at"))
+        duration_seconds = None
+        if commit_time and deployed_at and deployed_at >= commit_time:
+            duration_seconds = (deployed_at - commit_time).total_seconds()
+        records.append(
+            {
+                "id": deployment_id,
+                "commit_sha": item.get("commit_sha"),
+                "status": status,
+                "commit_timestamp": item.get("commit_timestamp"),
+                "deployed_at": item.get("deployed_at"),
+                "lead_time_seconds": duration_seconds,
+                "environment": item.get("environment"),
+            }
+        )
+
+    return {
+        "record_count": len(deployments),
+        "unique_record_count": len(seen_ids),
+        "duplicate_ids": duplicate_ids,
+        "status_counts": status_counts,
+        "successful_operational_deployments": status_counts.get("success", 0),
+        "records": records,
+    }
 
 
 def calculate_dora_metrics(
@@ -139,12 +181,16 @@ def calculate_dora_metrics(
         if mttr is None
         else "Average time to restore service after incidents.",
     )
+    if change_failure_rate_value is None and deployments:
+        cfr_reason = "Deployment records exist, but none have a recognized terminal status (success, failed, partial, or rollback)."
+    elif change_failure_rate_value is None:
+        cfr_reason = "No deploy status records were available to compute change failure rate."
+    else:
+        cfr_reason = "Failed deploy share among all completed deploy records."
     cfr_metric = metric_payload(
         "change_failure_rate",
         change_failure_rate_value,
-        "No deploy status records were available to compute change failure rate."
-        if change_failure_rate_value is None
-        else "Failed deploy share among all completed deploy records.",
+        cfr_reason,
     )
 
     return {
@@ -159,6 +205,11 @@ def calculate_dora_metrics(
         "window_days": days,
         "reference_time": reference_time or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "collection_errors": collection_errors or [],
+        "deployment_evidence": build_deployment_evidence(deployments),
+        "incident_evidence": {
+            "record_count": len(incidents),
+            "resolved_count": sum(1 for item in incidents if item.get("resolved_at")),
+        },
     }
 
 
@@ -190,46 +241,79 @@ def api_error(source: str, url: str, error: Exception) -> Dict[str, Any]:
     return {"source": source, "url": url, "type": "request_error", "message": str(error)}
 
 
+def fetch_github_json(url: str, headers: Dict[str, str]) -> Any:
+    import urllib.request
+
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def github_headers() -> Dict[str, str]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "first-git-dora-metrics",
+    }
+    if GITHUB_TOKEN:
+        headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+    return headers
+
+
 def fetch_github_pages_deployments(repo: str) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
-    if not repo or not GITHUB_TOKEN:
+    if not repo:
         return [], {
             "source": "github_deployments",
             "type": "configuration_error",
-            "message": "GITHUB_TOKEN or GITHUB_REPOSITORY is missing.",
+            "message": "GITHUB_REPOSITORY is missing.",
         }
 
     url = f"{GITHUB_API_URL}/repos/{repo}/deployments"
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
+    headers = github_headers()
 
     try:
-        import urllib.request
-
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=30) as response:
-            data = json.loads(response.read().decode("utf-8"))
+        data = fetch_github_json(url, headers)
 
         items: List[Dict[str, Any]] = []
+        seen_ids = set()
         for entry in data:
             payload = entry.get("payload") or {}
             environment = payload.get("environment") or entry.get("environment")
-            if environment != "github-pages":
+            deployment_id = str(entry.get("id"))
+            if environment != "github-pages" or deployment_id in seen_ids:
                 continue
+            seen_ids.add(deployment_id)
             commit_sha = entry.get("sha") or payload.get("commit_sha")
-            deployed_at = entry.get("created_at")
+            status_url = entry.get("statuses_url")
+            status_records = fetch_github_json(status_url, headers) if status_url else []
+            latest_status = next(
+                (
+                    status
+                    for status in status_records
+                    if str(status.get("state", "")).lower() in {"success", "failure", "error", "cancelled"}
+                ),
+                None,
+            )
+            status = str(latest_status.get("state", "unknown")).lower() if latest_status else "unknown"
+
+            commit_timestamp = None
+            if commit_sha:
+                commit_data = fetch_github_json(f"{GITHUB_API_URL}/repos/{repo}/commits/{commit_sha}", headers)
+                commit = commit_data.get("commit") or {}
+                commit_timestamp = (commit.get("committer") or {}).get("date") or (commit.get("author") or {}).get("date")
+
+            deployed_at = latest_status.get("created_at") if status == "success" else None
             items.append(
                 {
-                    "id": str(entry.get("id")),
-                    "status": "success" if entry.get("state") == "success" else "unknown",
+                    "id": deployment_id,
+                    "status": status,
                     "commit_sha": commit_sha,
-                    "commit_timestamp": entry.get("created_at"),
+                    "commit_timestamp": commit_timestamp,
                     "deployed_at": deployed_at,
                     "environment": environment,
                     "source": "github-pages",
                     "url": entry.get("url") or entry.get("statuses_url"),
+                    "deployment_created_at": entry.get("created_at"),
                 }
             )
         return items, None
@@ -238,11 +322,11 @@ def fetch_github_pages_deployments(repo: str) -> Tuple[List[Dict[str, Any]], Opt
 
 
 def fetch_github_issues_incidents(repo: str) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
-    if not repo or not GITHUB_TOKEN:
+    if not repo:
         return [], {
             "source": "github_issues",
             "type": "configuration_error",
-            "message": "GITHUB_TOKEN or GITHUB_REPOSITORY is missing.",
+            "message": "GITHUB_REPOSITORY is missing.",
         }
 
     labels = ["incident"]
@@ -256,11 +340,7 @@ def fetch_github_issues_incidents(repo: str) -> Tuple[List[Dict[str, Any]], Opti
             url = f"{GITHUB_API_URL}/repos/{repo}/issues?state=all&labels={label}&per_page=100"
             req = urllib.request.Request(
                 url,
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {GITHUB_TOKEN}",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
+                headers=github_headers(),
             )
             with urllib.request.urlopen(req, timeout=30) as response:
                 issues = json.loads(response.read().decode("utf-8"))
@@ -300,10 +380,22 @@ def append_repository_records(repo_root: Path) -> Dict[str, Any]:
     incidents = load_json(incident_path)
     collection_errors: List[Dict[str, Any]] = []
 
+    def merge_unique(primary: List[Dict[str, Any]], secondary: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        merged = []
+        seen_ids = set()
+        for item in primary + secondary:
+            record_id = str(item.get("id", ""))
+            if record_id and record_id in seen_ids:
+                continue
+            if record_id:
+                seen_ids.add(record_id)
+            merged.append(item)
+        return merged
+
     if repo_name:
         api_deployments, deployment_error = fetch_github_pages_deployments(repo_name)
         if api_deployments:
-            deployments = api_deployments + deployments
+            deployments = merge_unique(api_deployments, deployments)
         if deployment_error:
             collection_errors.append(deployment_error)
 
@@ -322,12 +414,20 @@ def build_weekly_report(metrics: Dict[str, Any]) -> str:
             return "null"
         return f"{value:.2f}{suffix}"
 
+    lead_time_hours = metrics.get("lead_time_hours")
+    if lead_time_hours is None:
+        lead_time_display = "null"
+    elif lead_time_hours * 3600 < 60:
+        lead_time_display = f"{lead_time_hours * 3600:.1f} seconds"
+    else:
+        lead_time_display = format_value(lead_time_hours, " hours")
+
     lines = [
         "# Weekly DORA Report",
         "",
         "## Summary",
         "",
-        f"- Lead Time: {format_value(metrics.get('lead_time_hours'), ' hours')}",
+        f"- Lead Time: {lead_time_display}",
         f"- Deployment Frequency: {format_value(metrics.get('deployment_frequency_per_week'), ' / week')}",
         f"- MTTR: {format_value(metrics.get('mttr_hours'), ' hours')}",
         f"- Change Failure Rate: {format_value(metrics.get('change_failure_rate_value'))}",
@@ -344,6 +444,18 @@ def build_weekly_report(metrics: Dict[str, Any]) -> str:
         "- Deployment events are sourced from GitHub Pages workflow records and repository JSON files.",
         "- Incident records are sourced only from GitHub Issues with the incident label and repository JSON files.",
         "- If data is missing, values stay null and the reason field explains why.",
+        "",
+        "## Deployment Evidence",
+        "",
+        f"- Records: {metrics.get('deployment_evidence', {}).get('record_count', 0)}",
+        f"- Unique records: {metrics.get('deployment_evidence', {}).get('unique_record_count', 0)}",
+        f"- Duplicate IDs: {metrics.get('deployment_evidence', {}).get('duplicate_ids', [])}",
+        f"- Status counts: {metrics.get('deployment_evidence', {}).get('status_counts', {})}",
+        "",
+        "## Incident Evidence",
+        "",
+        f"- Incident issues collected: {metrics.get('incident_evidence', {}).get('record_count', 0)}",
+        f"- Resolved incidents: {metrics.get('incident_evidence', {}).get('resolved_count', 0)}",
         "",
         "## Collection Errors",
         "",
@@ -439,6 +551,12 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
         return `${value.toFixed(2)}${suffix}`;
       }
 
+            function formatLeadTime(value) {
+                if (value === null || value === undefined) return 'null';
+                const seconds = value * 3600;
+                return seconds < 60 ? `${seconds.toFixed(1)} seconds` : formatMetricValue(value, ' hours');
+            }
+
       function showMetric(metricId, metricKey, data) {
         const valueElem = document.getElementById(metricId);
         const reasonElem = document.getElementById(`${metricId}-reason`);
@@ -452,8 +570,8 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
           return null;
         }
 
-        const formatted = metricKey === 'lead_time_hours'
-          ? formatMetricValue(rawValue, ' hours')
+                const formatted = metricKey === 'lead_time_hours'
+                    ? formatLeadTime(rawValue)
           : metricKey === 'deployment_frequency_per_week'
             ? formatMetricValue(rawValue, ' / week')
             : metricKey === 'mttr_hours'

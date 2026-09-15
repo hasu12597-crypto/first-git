@@ -16,16 +16,16 @@ Git과 GitHub 실습용 저장소입니다. 이 저장소는 GitHub Actions를 �
 ## DORA 4대 지표 정의
 
 ### 1) Lead Time
-- 정의: 코드가 시작된 시점부터 실제 운영 환경에 배포되기까지 걸리는 시간입니다.
+- 정의: 배포된 커밋의 실제 커밋 시점부터 GitHub Pages 운영 배포 성공 시점까지의 시간입니다.
 - 의미: 변경이 얼마나 빠르게 고객에게 전달되는지를 보여줍니다.
-- 데이터 출처: `data/deployments.json`의 `started_at`과 `deployed_at` 값을 사용합니다.
-- 계산 방식: 유효한 배포 pair의 평균 시간(시간 단위)입니다.
+- 데이터 출처: GitHub Deployments의 커밋 SHA, 해당 커밋 API의 커밋 시각, 배포 status API의 성공 시각입니다.
+- 계산 방식: 성공 배포의 유효한 pair 평균입니다. 1분 미만은 보고서와 대시보드에서 초 단위로 표시합니다.
 
 ### 2) Deployment Frequency
 - 정의: 일정 기간(기본 7일) 동안 몇 번 배포가 발생했는지를 나타냅니다.
 - 의미: 팀의 배포 속도와 릴리즈 주기를 보여줍니다.
 - 데이터 출처: `data/deployments.json`의 `deployed_at` 값을 기준으로 집계합니다.
-- 계산 방식: 7일 기준 배포 횟수의 비율로 계산합니다.
+- 계산 방식: 최근 7일 안의 `success` 운영 배포만 세며, 실패 배포는 빈도에서 제외합니다.
 
 ### 3) MTTR (Mean Time To Recovery)
 - 정의: 장애 발생 시점부터 복구 완료 시점까지의 평균 시간입니다.
@@ -37,7 +37,7 @@ Git과 GitHub 실습용 저장소입니다. 이 저장소는 GitHub Actions를 �
 - 정의: 전체 배포 중 실패하거나 롤백이 발생한 비율입니다.
 - 의미: 배포 품질과 안정성을 보여줍니다.
 - 데이터 출처: `data/deployments.json`의 `status` 필드입니다.
-- 계산 방식: `success` 대비 `failed`, `partial`, `rollback` 비율입니다.
+- 계산 방식: 상태가 `success`, `failed`, `failure`, `partial`, `rollback`, `error`, `cancelled`인 전체 배포 중 실패 계열 비율입니다.
 
 ## 데이터 출처와 기록 방법
 
@@ -123,6 +123,11 @@ Deployment SHA: abc123...
 - `metrics.json`의 `collection_errors`에 소스, 실제 요청 URL, 오류 유형, HTTP 상태, API 응답 메시지가 기록됩니다.
 - `weekly-report.md`에는 `Collection Errors` 항목으로 표시되고, 대시보드 상태도 `API 데이터 수집 오류`로 표시됩니다.
 - 수집 오류가 있으면 `metrics.py`가 산출물을 먼저 작성한 뒤 종료 코드 `1`을 반환합니다. 따라서 `if: always()` 아티팩트 업로드는 실행되지만 최종 workflow 결과는 실패입니다.
+
+### 계산 근거 확인
+- `metrics.json`의 `deployment_evidence`에 전체 건수, 고유 건수, 중복 ID, 상태별 건수, 배포별 커밋 시각·성공 시각·Lead Time 초가 기록됩니다.
+- 현재 대상 저장소의 실제 공개 API 결과는 배포 4건, 고유 ID 4건, 중복 0건, `success` 2건과 `failure` 2건입니다. 따라서 성공 배포 빈도는 2.0/week, Change Failure Rate는 2/4 = 0.5입니다.
+- `incident` 라벨 Issue가 없으면 장애 데이터는 0건이며, MTTR은 `null`로 남습니다. 장애 데이터를 만들거나 예시 데이터를 섞지 않습니다.
 
 ### 404 발생 시 GitHub 확인 절차
 1. 실패한 Actions 실행의 `dora-metrics` 아티팩트를 다운로드합니다.
