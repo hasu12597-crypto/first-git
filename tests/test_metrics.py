@@ -81,6 +81,7 @@ class DORAMetricsTest(unittest.TestCase):
         self.assertEqual(deployments, [])
         self.assertEqual(collection_error["type"], "http_error")
         self.assertEqual(collection_error["status"], 403)
+        self.assertEqual(collection_error["url"], "https://api.github.com/repos/example/repo/deployments")
 
 
 if __name__ == "__main__":

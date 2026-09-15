@@ -119,8 +119,17 @@ Deployment SHA: abc123...
 
 ### API 권한 오류 표시
 - Deployments API 또는 Issues API가 `401`, `403` 등으로 실패하면 이를 데이터 없음으로 숨기지 않습니다.
-- `metrics.json`의 `collection_errors`에 소스, 오류 유형, HTTP 상태, API 응답 메시지가 기록됩니다.
+- 요청은 `GITHUB_API_URL`을 기준으로 `https://api.github.com/repos/소유자/저장소/deployments` 및 `.../issues` 형태로 구성됩니다. Actions에서는 `github.api_url`, 저장소 이름은 `github.repository`를 사용합니다.
+- `metrics.json`의 `collection_errors`에 소스, 실제 요청 URL, 오류 유형, HTTP 상태, API 응답 메시지가 기록됩니다.
 - `weekly-report.md`에는 `Collection Errors` 항목으로 표시되고, 대시보드 상태도 `API 데이터 수집 오류`로 표시됩니다.
+- 수집 오류가 있으면 `metrics.py`가 산출물을 먼저 작성한 뒤 종료 코드 `1`을 반환합니다. 따라서 `if: always()` 아티팩트 업로드는 실행되지만 최종 workflow 결과는 실패입니다.
+
+### 404 발생 시 GitHub 확인 절차
+1. 실패한 Actions 실행의 `dora-metrics` 아티팩트를 다운로드합니다.
+2. `metrics.json`의 `collection_errors`에서 `url`, `status`, `message`를 확인합니다. 토큰 값은 로그나 아티팩트에 기록하지 않습니다.
+3. URL이 다음 대상과 일치하는지 확인합니다: `https://api.github.com/repos/hasu12597-crypto/first-git/deployments`, `https://api.github.com/repos/hasu12597-crypto/first-git/issues?state=all&labels=incident&per_page=100`.
+4. URL이 맞고 `404 Not Found`이면 저장소가 실제로 해당 owner/name으로 존재하는지, Actions 실행의 `GITHUB_REPOSITORY`가 `hasu12597-crypto/first-git`인지, `GITHUB_TOKEN`이 이 저장소에 접근할 수 있는지 확인합니다. 비공개 저장소는 권한 부족도 404로 응답할 수 있습니다.
+5. `401` 또는 `403`이면 토큰 만료/무효 또는 workflow의 `deployments: read`·`issues: read` 권한을 확인합니다. 권한 오류는 데이터 없음으로 처리되지 않고 workflow를 실패시킵니다.
 
 ## 저장소 구조
 

@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -7,7 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")
-GITHUB_SERVER_URL = os.getenv("GITHUB_SERVER_URL", "https://api.github.com")
+GITHUB_API_URL = os.getenv("GITHUB_API_URL", "https://api.github.com").rstrip("/")
 
 
 def parse_iso8601(value: Optional[str]) -> Optional[datetime]:
@@ -174,25 +175,30 @@ def load_json(path: Path) -> List[Dict[str, Any]]:
         return []
 
 
-def api_error(source: str, error: Exception) -> Dict[str, Any]:
+def api_error(source: str, url: str, error: Exception) -> Dict[str, Any]:
     import urllib.error
 
     if isinstance(error, urllib.error.HTTPError):
         detail = error.read().decode("utf-8", errors="replace")
         return {
             "source": source,
+            "url": url,
             "type": "http_error",
             "status": error.code,
             "message": detail or str(error.reason),
         }
-    return {"source": source, "type": "request_error", "message": str(error)}
+    return {"source": source, "url": url, "type": "request_error", "message": str(error)}
 
 
 def fetch_github_pages_deployments(repo: str) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
     if not repo or not GITHUB_TOKEN:
-        return [], {"source": "github_deployments", "type": "configuration_error", "message": "GITHUB_TOKEN or GITHUB_REPOSITORY is missing."}
+        return [], {
+            "source": "github_deployments",
+            "type": "configuration_error",
+            "message": "GITHUB_TOKEN or GITHUB_REPOSITORY is missing.",
+        }
 
-    url = f"{GITHUB_SERVER_URL}/repos/{repo}/deployments"
+    url = f"{GITHUB_API_URL}/repos/{repo}/deployments"
     headers = {
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {GITHUB_TOKEN}",
@@ -228,12 +234,16 @@ def fetch_github_pages_deployments(repo: str) -> Tuple[List[Dict[str, Any]], Opt
             )
         return items, None
     except Exception as error:
-        return [], api_error("github_deployments", error)
+        return [], api_error("github_deployments", url, error)
 
 
 def fetch_github_issues_incidents(repo: str) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
     if not repo or not GITHUB_TOKEN:
-        return [], {"source": "github_issues", "type": "configuration_error", "message": "GITHUB_TOKEN or GITHUB_REPOSITORY is missing."}
+        return [], {
+            "source": "github_issues",
+            "type": "configuration_error",
+            "message": "GITHUB_TOKEN or GITHUB_REPOSITORY is missing.",
+        }
 
     labels = ["incident"]
     result: List[Dict[str, Any]] = []
@@ -243,7 +253,7 @@ def fetch_github_issues_incidents(repo: str) -> Tuple[List[Dict[str, Any]], Opti
         import urllib.request
 
         for label in labels:
-            url = f"{GITHUB_SERVER_URL}/repos/{repo}/issues?state=all&labels={label}&per_page=100"
+            url = f"{GITHUB_API_URL}/repos/{repo}/issues?state=all&labels={label}&per_page=100"
             req = urllib.request.Request(
                 url,
                 headers={
@@ -278,7 +288,7 @@ def fetch_github_issues_incidents(repo: str) -> Tuple[List[Dict[str, Any]], Opti
                 )
         return result, None
     except Exception as error:
-        return [], api_error("github_issues", error)
+        return [], api_error("github_issues", url, error)
 
 
 def append_repository_records(repo_root: Path) -> Dict[str, Any]:
@@ -341,7 +351,7 @@ def build_weekly_report(metrics: Dict[str, Any]) -> str:
     errors = metrics.get("collection_errors", [])
     if errors:
         lines.extend(
-            f"- {error.get('source')}: {error.get('type')} ({error.get('status', 'n/a')}) - {error.get('message')}"
+            f"- {error.get('source')}: {error.get('type')} ({error.get('status', 'n/a')}) - {error.get('url', 'n/a')} - {error.get('message')}"
             for error in errors
         )
     else:
@@ -466,7 +476,7 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
 
                 if (collectionErrors.length > 0) {
                     document.getElementById('status').textContent = '상태: API 데이터 수집 오류';
-                    document.getElementById('notes').textContent = collectionErrors.map((error) => `${error.source}: ${error.type} (${error.status || 'n/a'}) - ${error.message}`).join(' | ');
+          document.getElementById('notes').textContent = collectionErrors.map((error) => `${error.source}: ${error.type} (${error.status || 'n/a'}) - ${error.url || 'n/a'} - ${error.message}`).join(' | ');
                 } else if (!hasValues) {
           document.getElementById('status').textContent = '상태: 실제 데이터 없음';
           document.getElementById('notes').textContent = '실제 배포/장애 데이터가 없어 계산할 수 없습니다. reason을 확인하세요.';
@@ -517,7 +527,7 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
     return template.replace("__JSON_DATA__", script_data)
 
 
-def main() -> None:
+def main() -> int:
     repo_root = Path(__file__).resolve().parent
     deployment_path = repo_root / "data" / "deployments.json"
     incident_path = repo_root / "data" / "incidents.json"
@@ -536,7 +546,11 @@ def main() -> None:
     dashboard_path.write_text(build_dashboard_html(metrics), encoding="utf-8")
 
     print(json.dumps(metrics, indent=2, ensure_ascii=False))
+    if metrics["collection_errors"]:
+        print("GitHub API collection failed; artifacts were generated, but this workflow must fail.", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
