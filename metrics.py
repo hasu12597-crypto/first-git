@@ -585,11 +585,6 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
           <div class="value" id="change-failure-rate">null</div>
           <div class="reason" id="change-failure-rate-reason">-</div>
         </div>
-                <div class="card">
-                    <div class="label">Deployment Job Failure Rate</div>
-                    <div class="value" id="deployment-failure-rate">null</div>
-                    <div class="reason" id="deployment-failure-rate-reason">-</div>
-                </div>
       </div>
 
       <div class="status" id="status">상태: 초기화 중...</div>
@@ -643,7 +638,6 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
           data.deployment_frequency_per_week,
           data.mttr_hours,
           data.change_failure_rate_value,
-          data.deployment_failure_rate_value,
         ].some((value) => value !== null && value !== undefined);
 
                 if (collectionErrors.length > 0) {
@@ -661,7 +655,6 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
         showMetric('deployment-frequency', 'deployment_frequency_per_week', data);
         showMetric('mttr', 'mttr_hours', data);
         showMetric('change-failure-rate', 'change_failure_rate_value', data);
-        showMetric('deployment-failure-rate', 'deployment_failure_rate_value', data);
       }
 
       async function loadMetrics() {
@@ -685,12 +678,10 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
           document.getElementById('deployment-frequency').textContent = 'null';
           document.getElementById('mttr').textContent = 'null';
           document.getElementById('change-failure-rate').textContent = 'null';
-          document.getElementById('deployment-failure-rate').textContent = 'null';
           document.getElementById('lead-time-reason').textContent = '파일 로딩에 실패했습니다.';
           document.getElementById('deployment-frequency-reason').textContent = '파일 로딩에 실패했습니다.';
           document.getElementById('mttr-reason').textContent = '파일 로딩에 실패했습니다.';
           document.getElementById('change-failure-rate-reason').textContent = '파일 로딩에 실패했습니다.';
-          document.getElementById('deployment-failure-rate-reason').textContent = '파일 로딩에 실패했습니다.';
         }
       }
 
