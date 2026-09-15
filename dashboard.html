@@ -56,6 +56,11 @@
           <div class="value" id="change-failure-rate">null</div>
           <div class="reason" id="change-failure-rate-reason">-</div>
         </div>
+                <div class="card">
+                    <div class="label">Deployment Job Failure Rate</div>
+                    <div class="value" id="deployment-failure-rate">null</div>
+                    <div class="reason" id="deployment-failure-rate-reason">-</div>
+                </div>
       </div>
 
       <div class="status" id="status">상태: 초기화 중...</div>
@@ -63,7 +68,7 @@
     </div>
 
     <script>
-      window.__DORA_DATA__ = {"lead_time": {"metric": "lead_time", "value": 0.008611111111111111, "unit": "hours", "reason": "Average time from commit to successful deployment across valid deploy records."}, "deployment_frequency": {"metric": "deployment_frequency", "value": 2.0, "unit": "per_week", "reason": "Count of deployment records in the last 7-day window, normalized to one week."}, "mttr": {"metric": "mttr", "value": null, "unit": "hours", "reason": "No valid incident start/resolution timestamps found for MTTR calculation."}, "change_failure_rate": {"metric": "change_failure_rate", "value": 0.5, "unit": "ratio", "reason": "Failed deploy share among all completed deploy records."}, "lead_time_hours": 0.008611111111111111, "deployment_frequency_per_week": 2.0, "mttr_hours": null, "change_failure_rate_value": 0.5, "window_days": 7, "reference_time": "2026-09-15T06:15:39Z", "collection_errors": [], "deployment_evidence": {"record_count": 4, "unique_record_count": 4, "duplicate_ids": [], "status_counts": {"success": 2, "failure": 2}, "successful_operational_deployments": 2, "records": [{"id": "6452799378", "commit_sha": "cf65ebcfba05ccfb73993247cf7f2826038fe6b9", "status": "success", "commit_timestamp": "2026-09-15T06:06:55Z", "deployed_at": "2026-09-15T06:07:27Z", "lead_time_seconds": 32.0, "environment": "github-pages"}, {"id": "6452722621", "commit_sha": "b1aef48fb141d158243090c333b00781fad00bab", "status": "success", "commit_timestamp": "2026-09-15T06:00:26Z", "deployed_at": "2026-09-15T06:00:56Z", "lead_time_seconds": 30.0, "environment": "github-pages"}, {"id": "6440421716", "commit_sha": "ac7d6adc20737f31357c66287efc43182138ba55", "status": "failure", "commit_timestamp": "2026-09-14T15:26:11Z", "deployed_at": null, "lead_time_seconds": null, "environment": "github-pages"}, {"id": "6440094750", "commit_sha": "d7aba42ec9a302bc307ba4c1a68d29c671765483", "status": "failure", "commit_timestamp": "2026-09-14T15:10:07Z", "deployed_at": null, "lead_time_seconds": null, "environment": "github-pages"}]}, "incident_evidence": {"record_count": 0, "resolved_count": 0}};
+      window.__DORA_DATA__ = {"lead_time": {"metric": "lead_time", "value": 0.009444444444444445, "unit": "hours", "reason": "Average time from commit to successful deployment across valid deploy records."}, "deployment_frequency": {"metric": "deployment_frequency", "value": 3.0, "unit": "per_week", "reason": "Count of deployment records in the last 7-day window, normalized to one week."}, "mttr": {"metric": "mttr", "value": null, "unit": "hours", "reason": "No valid incident start/resolution timestamps found for MTTR calculation."}, "change_failure_rate": {"metric": "change_failure_rate", "value": null, "unit": "ratio", "reason": "No incident issues with deployment ID/SHA links were collected; change-failure completeness cannot be determined."}, "deployment_failure_rate": {"metric": "deployment_failure_rate", "value": 0.4, "unit": "ratio", "reason": "Failed deployment job share among all completed deployment jobs."}, "lead_time_hours": 0.009444444444444445, "deployment_frequency_per_week": 3.0, "mttr_hours": null, "change_failure_rate_value": null, "deployment_failure_rate_value": 0.4, "window_days": 7, "reference_time": "2026-09-15T06:21:04Z", "collection_errors": [], "deployment_evidence": {"record_count": 5, "unique_record_count": 5, "duplicate_ids": [], "status_counts": {"success": 3, "failure": 2}, "successful_operational_deployments": 3, "records": [{"id": "6452921063", "commit_sha": "4852a64079bf962bea36ec5f182cba108d20818b", "status": "success", "commit_timestamp": "2026-09-15T06:16:43Z", "deployed_at": "2026-09-15T06:17:23Z", "lead_time_seconds": 40.0, "environment": "github-pages"}, {"id": "6452799378", "commit_sha": "cf65ebcfba05ccfb73993247cf7f2826038fe6b9", "status": "success", "commit_timestamp": "2026-09-15T06:06:55Z", "deployed_at": "2026-09-15T06:07:27Z", "lead_time_seconds": 32.0, "environment": "github-pages"}, {"id": "6452722621", "commit_sha": "b1aef48fb141d158243090c333b00781fad00bab", "status": "success", "commit_timestamp": "2026-09-15T06:00:26Z", "deployed_at": "2026-09-15T06:00:56Z", "lead_time_seconds": 30.0, "environment": "github-pages"}, {"id": "6440421716", "commit_sha": "ac7d6adc20737f31357c66287efc43182138ba55", "status": "failure", "commit_timestamp": "2026-09-14T15:26:11Z", "deployed_at": null, "lead_time_seconds": null, "environment": "github-pages"}, {"id": "6440094750", "commit_sha": "d7aba42ec9a302bc307ba4c1a68d29c671765483", "status": "failure", "commit_timestamp": "2026-09-14T15:10:07Z", "deployed_at": null, "lead_time_seconds": null, "environment": "github-pages"}]}, "incident_evidence": {"record_count": 0, "resolved_count": 0, "linked_deployment_ids": [], "unlinked_incident_ids": []}};
 
       function formatMetricValue(value, suffix = '') {
         if (value === null || value === undefined) return 'null';
@@ -109,6 +114,7 @@
           data.deployment_frequency_per_week,
           data.mttr_hours,
           data.change_failure_rate_value,
+          data.deployment_failure_rate_value,
         ].some((value) => value !== null && value !== undefined);
 
                 if (collectionErrors.length > 0) {
@@ -126,6 +132,7 @@
         showMetric('deployment-frequency', 'deployment_frequency_per_week', data);
         showMetric('mttr', 'mttr_hours', data);
         showMetric('change-failure-rate', 'change_failure_rate_value', data);
+        showMetric('deployment-failure-rate', 'deployment_failure_rate_value', data);
       }
 
       async function loadMetrics() {
@@ -149,10 +156,12 @@
           document.getElementById('deployment-frequency').textContent = 'null';
           document.getElementById('mttr').textContent = 'null';
           document.getElementById('change-failure-rate').textContent = 'null';
+          document.getElementById('deployment-failure-rate').textContent = 'null';
           document.getElementById('lead-time-reason').textContent = '파일 로딩에 실패했습니다.';
           document.getElementById('deployment-frequency-reason').textContent = '파일 로딩에 실패했습니다.';
           document.getElementById('mttr-reason').textContent = '파일 로딩에 실패했습니다.';
           document.getElementById('change-failure-rate-reason').textContent = '파일 로딩에 실패했습니다.';
+          document.getElementById('deployment-failure-rate-reason').textContent = '파일 로딩에 실패했습니다.';
         }
       }
 

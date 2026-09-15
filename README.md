@@ -24,7 +24,7 @@ Git과 GitHub 실습용 저장소입니다. 이 저장소는 GitHub Actions를 �
 ### 2) Deployment Frequency
 - 정의: 일정 기간(기본 7일) 동안 몇 번 배포가 발생했는지를 나타냅니다.
 - 의미: 팀의 배포 속도와 릴리즈 주기를 보여줍니다.
-- 데이터 출처: `data/deployments.json`의 `deployed_at` 값을 기준으로 집계합니다.
+- 데이터 출처: GitHub Pages deployment status API의 성공 시각(`deployed_at`)을 기준으로 집계합니다.
 - 계산 방식: 최근 7일 안의 `success` 운영 배포만 세며, 실패 배포는 빈도에서 제외합니다.
 
 ### 3) MTTR (Mean Time To Recovery)
@@ -34,10 +34,14 @@ Git과 GitHub 실습용 저장소입니다. 이 저장소는 GitHub Actions를 �
 - 계산 방식: 장애별 복구 시간 평균을 계산합니다.
 
 ### 4) Change Failure Rate
-- 정의: 전체 배포 중 실패하거나 롤백이 발생한 비율입니다.
+- 정의: 운영에 반영된 성공 배포 중 장애, 롤백, 핫픽스 등 조치가 필요했던 배포의 비율입니다.
 - 의미: 배포 품질과 안정성을 보여줍니다.
-- 데이터 출처: `data/deployments.json`의 `status` 필드입니다.
-- 계산 방식: 상태가 `success`, `failed`, `failure`, `partial`, `rollback`, `error`, `cancelled`인 전체 배포 중 실패 계열 비율입니다.
+- 데이터 출처: `incident` 라벨 GitHub Issue와 배포 기록의 `id` 또는 `commit_sha` 연결입니다.
+- 계산 방식: 성공 운영 배포 중 incident Issue에 배포 ID/SHA가 연결된 고유 배포 수의 비율입니다. 연결 정보가 없거나 일부 장애가 연결되지 않으면 완전성을 보장할 수 없어 `null`입니다.
+
+### Deployment Job Failure Rate
+- 정의: 전체 완료된 배포 작업 중 `failure`, `error`, `rollback`, `cancelled` 등으로 끝난 작업의 비율입니다.
+- 이 값은 DORA Change Failure Rate와 별개이며, `deployment_failure_rate_value`로 저장합니다.
 
 ## 데이터 출처와 기록 방법
 
@@ -59,7 +63,7 @@ Git과 GitHub 실습용 저장소입니다. 이 저장소는 GitHub Actions를 �
 
 필드 설명:
 - `id`: 배포 식별자
-- `status`: `success`, `failed`, `partial`, `rollback`
+- `status`: `success`, `failed`, `failure`, `partial`, `rollback`, `error`, `cancelled`
 - `started_at`: 변경 작업 시작 시각
 - `deployed_at`: 실제 배포 완료 시각
 
@@ -110,6 +114,8 @@ Deployment SHA: abc123...
 ```
 
 - 배포 ID를 모르면 `Deployment SHA`만 기록해도 됩니다. 해당 SHA가 배포 기록의 `commit_sha`와 일치하는지 확인합니다.
+- 같은 배포를 여러 incident Issue가 참조해도 deployment ID/SHA 기준으로 한 번만 CFR에 포함합니다.
+- `incident` Issue가 없거나, Issue는 있지만 배포 ID/SHA가 없거나 일치하지 않으면 CFR은 `null`이며 사유에 완전성 판단 불가를 표시합니다.
 
 ### GitHub Actions 권한
 - `metrics.yml`: `contents: read`, `issues: read`만 사용합니다. 저장소 쓰기 권한, Pull Request 생성·승인 권한은 부여하지 않습니다.
@@ -126,7 +132,7 @@ Deployment SHA: abc123...
 
 ### 계산 근거 확인
 - `metrics.json`의 `deployment_evidence`에 전체 건수, 고유 건수, 중복 ID, 상태별 건수, 배포별 커밋 시각·성공 시각·Lead Time 초가 기록됩니다.
-- 현재 대상 저장소의 실제 공개 API 결과는 배포 4건, 고유 ID 4건, 중복 0건, `success` 2건과 `failure` 2건입니다. 따라서 성공 배포 빈도는 2.0/week, Change Failure Rate는 2/4 = 0.5입니다.
+- 현재 대상 저장소의 실제 공개 API 결과는 배포 4건, 고유 ID 4건, 중복 0건, `success` 2건과 `failure` 2건입니다. 따라서 성공한 운영 배포 빈도는 2.0/week, 배포 작업 실패율은 2/4 = 0.5입니다. incident 연결이 없으므로 DORA Change Failure Rate는 `null`입니다.
 - `incident` 라벨 Issue가 없으면 장애 데이터는 0건이며, MTTR은 `null`로 남습니다. 장애 데이터를 만들거나 예시 데이터를 섞지 않습니다.
 
 ### 404 발생 시 GitHub 확인 절차

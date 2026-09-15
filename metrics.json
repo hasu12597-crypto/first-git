@@ -1,13 +1,13 @@
 {
   "lead_time": {
     "metric": "lead_time",
-    "value": 0.008611111111111111,
+    "value": 0.009444444444444445,
     "unit": "hours",
     "reason": "Average time from commit to successful deployment across valid deploy records."
   },
   "deployment_frequency": {
     "metric": "deployment_frequency",
-    "value": 2.0,
+    "value": 3.0,
     "unit": "per_week",
     "reason": "Count of deployment records in the last 7-day window, normalized to one week."
   },
@@ -19,27 +19,43 @@
   },
   "change_failure_rate": {
     "metric": "change_failure_rate",
-    "value": 0.5,
+    "value": null,
     "unit": "ratio",
-    "reason": "Failed deploy share among all completed deploy records."
+    "reason": "No incident issues with deployment ID/SHA links were collected; change-failure completeness cannot be determined."
   },
-  "lead_time_hours": 0.008611111111111111,
-  "deployment_frequency_per_week": 2.0,
+  "deployment_failure_rate": {
+    "metric": "deployment_failure_rate",
+    "value": 0.4,
+    "unit": "ratio",
+    "reason": "Failed deployment job share among all completed deployment jobs."
+  },
+  "lead_time_hours": 0.009444444444444445,
+  "deployment_frequency_per_week": 3.0,
   "mttr_hours": null,
-  "change_failure_rate_value": 0.5,
+  "change_failure_rate_value": null,
+  "deployment_failure_rate_value": 0.4,
   "window_days": 7,
-  "reference_time": "2026-09-15T06:15:39Z",
+  "reference_time": "2026-09-15T06:21:04Z",
   "collection_errors": [],
   "deployment_evidence": {
-    "record_count": 4,
-    "unique_record_count": 4,
+    "record_count": 5,
+    "unique_record_count": 5,
     "duplicate_ids": [],
     "status_counts": {
-      "success": 2,
+      "success": 3,
       "failure": 2
     },
-    "successful_operational_deployments": 2,
+    "successful_operational_deployments": 3,
     "records": [
+      {
+        "id": "6452921063",
+        "commit_sha": "4852a64079bf962bea36ec5f182cba108d20818b",
+        "status": "success",
+        "commit_timestamp": "2026-09-15T06:16:43Z",
+        "deployed_at": "2026-09-15T06:17:23Z",
+        "lead_time_seconds": 40.0,
+        "environment": "github-pages"
+      },
       {
         "id": "6452799378",
         "commit_sha": "cf65ebcfba05ccfb73993247cf7f2826038fe6b9",
@@ -80,6 +96,8 @@
   },
   "incident_evidence": {
     "record_count": 0,
-    "resolved_count": 0
+    "resolved_count": 0,
+    "linked_deployment_ids": [],
+    "unlinked_incident_ids": []
   }
 }

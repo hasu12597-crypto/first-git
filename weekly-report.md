@@ -2,17 +2,19 @@
 
 ## Summary
 
-- Lead Time: 31.0 seconds
-- Deployment Frequency: 2.00 / week
+- Lead Time: 34.0 seconds
+- Deployment Frequency: 3.00 / week
 - MTTR: null
-- Change Failure Rate: 0.50
+- Change Failure Rate: null
+- Deployment Job Failure Rate: 0.40
 
 ## Metric Definitions
 
 - Lead Time: time from the code commit to a successful deployment.
 - Deployment Frequency: how often deploys happen in a week.
 - MTTR: mean time to restore service after an incident.
-- Change Failure Rate: share of deployments that fail or require rollback.
+- Change Failure Rate: share of successful operational deployments linked to incident issues by deployment ID or commit SHA.
+- Deployment Job Failure Rate: share of deployment jobs whose terminal status is failure, error, rollback, or cancellation.
 
 ## Data Sources
 
@@ -22,10 +24,10 @@
 
 ## Deployment Evidence
 
-- Records: 4
-- Unique records: 4
+- Records: 5
+- Unique records: 5
 - Duplicate IDs: []
-- Status counts: {'success': 2, 'failure': 2}
+- Status counts: {'success': 3, 'failure': 2}
 
 ## Incident Evidence
 

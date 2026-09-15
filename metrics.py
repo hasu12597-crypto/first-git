@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -78,7 +79,7 @@ def calculate_mttr_hours(incidents: List[Dict[str, Any]]) -> Optional[float]:
     return sum(valid) / len(valid)
 
 
-def calculate_change_failure_rate(deployments: List[Dict[str, Any]]) -> Optional[float]:
+def calculate_deployment_failure_rate(deployments: List[Dict[str, Any]]) -> Optional[float]:
     if not deployments:
         return None
 
@@ -94,6 +95,41 @@ def calculate_change_failure_rate(deployments: List[Dict[str, Any]]) -> Optional
     if total == 0:
         return None
     return failed / total
+
+
+def calculate_change_failure_rate(
+    deployments: List[Dict[str, Any]], incidents: List[Dict[str, Any]]
+) -> Tuple[Optional[float], str, Dict[str, Any]]:
+    successful = [item for item in deployments if str(item.get("status", "")).lower() == "success"]
+    if not successful:
+        return None, "No successful operational deployments are available as the CFR denominator; change-failure completeness cannot be determined.", {"linked_deployment_ids": []}
+    if not incidents:
+        return None, "No incident issues with deployment ID/SHA links were collected; change-failure completeness cannot be determined.", {"linked_deployment_ids": []}
+
+    linked_ids = set()
+    unlinked_incidents = []
+    for incident in incidents:
+        incident_ids = {str(value) for value in incident.get("deployment_ids", [])}
+        incident_shas = {str(value).lower() for value in incident.get("deployment_shas", [])}
+        matches = [
+            item for item in successful
+            if str(item.get("id")) in incident_ids
+            or (item.get("commit_sha") and str(item.get("commit_sha")).lower() in incident_shas)
+        ]
+        if not matches:
+            unlinked_incidents.append(str(incident.get("id", "unknown")))
+        linked_ids.update(str(item.get("id")) for item in matches)
+
+    if unlinked_incidents:
+        return None, "Some incident issues have no matching deployment ID/SHA; change-failure completeness cannot be determined.", {
+            "linked_deployment_ids": sorted(linked_ids),
+            "unlinked_incident_ids": unlinked_incidents,
+        }
+
+    return len(linked_ids) / len(successful), "Share of successful operational deployments linked to incident issues by deployment ID or commit SHA.", {
+        "linked_deployment_ids": sorted(linked_ids),
+        "unlinked_incident_ids": [],
+    }
 
 
 def build_deployment_evidence(deployments: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -149,7 +185,8 @@ def calculate_dora_metrics(
     lead_time = calculate_lead_time_hours(deployments)
     deployment_frequency = calculate_deployment_frequency_per_week(deployments, days=days, reference_time=reference_time)
     mttr = calculate_mttr_hours(incidents)
-    change_failure_rate_value = calculate_change_failure_rate(deployments)
+    deployment_failure_rate_value = calculate_deployment_failure_rate(deployments)
+    change_failure_rate_value, cfr_reason, cfr_evidence = calculate_change_failure_rate(deployments, incidents)
 
     def metric_payload(name: str, value: Optional[float], reason: str) -> Dict[str, Any]:
         if name in {"lead_time", "mttr"}:
@@ -181,12 +218,6 @@ def calculate_dora_metrics(
         if mttr is None
         else "Average time to restore service after incidents.",
     )
-    if change_failure_rate_value is None and deployments:
-        cfr_reason = "Deployment records exist, but none have a recognized terminal status (success, failed, partial, or rollback)."
-    elif change_failure_rate_value is None:
-        cfr_reason = "No deploy status records were available to compute change failure rate."
-    else:
-        cfr_reason = "Failed deploy share among all completed deploy records."
     cfr_metric = metric_payload(
         "change_failure_rate",
         change_failure_rate_value,
@@ -198,10 +229,18 @@ def calculate_dora_metrics(
         "deployment_frequency": deployment_frequency_metric,
         "mttr": mttr_metric,
         "change_failure_rate": cfr_metric,
+        "deployment_failure_rate": metric_payload(
+            "deployment_failure_rate",
+            deployment_failure_rate_value,
+            "No deploy status records were available to compute deployment job failure rate."
+            if deployment_failure_rate_value is None
+            else "Failed deployment job share among all completed deployment jobs.",
+        ),
         "lead_time_hours": lead_time,
         "deployment_frequency_per_week": deployment_frequency,
         "mttr_hours": mttr,
         "change_failure_rate_value": change_failure_rate_value,
+        "deployment_failure_rate_value": deployment_failure_rate_value,
         "window_days": days,
         "reference_time": reference_time or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "collection_errors": collection_errors or [],
@@ -209,6 +248,8 @@ def calculate_dora_metrics(
         "incident_evidence": {
             "record_count": len(incidents),
             "resolved_count": sum(1 for item in incidents if item.get("resolved_at")),
+            "linked_deployment_ids": cfr_evidence["linked_deployment_ids"],
+            "unlinked_incident_ids": cfr_evidence.get("unlinked_incident_ids", []),
         },
     }
 
@@ -356,6 +397,9 @@ def fetch_github_issues_incidents(repo: str) -> Tuple[List[Dict[str, Any]], Opti
                 closed = issue.get("closed_at")
                 if not created:
                     continue
+                body = issue.get("body") or ""
+                deployment_ids = re.findall(r"(?im)^\s*Deployment ID:\s*([^\s]+)", body)
+                deployment_shas = re.findall(r"(?im)^\s*Deployment SHA:\s*([0-9a-f]{7,40})", body)
                 result.append(
                     {
                         "id": issue_id,
@@ -364,6 +408,8 @@ def fetch_github_issues_incidents(repo: str) -> Tuple[List[Dict[str, Any]], Opti
                         "started_at": created,
                         "resolved_at": closed,
                         "issue_url": issue.get("html_url"),
+                        "deployment_ids": deployment_ids,
+                        "deployment_shas": [sha.lower() for sha in deployment_shas],
                     }
                 )
         return result, None
@@ -431,13 +477,15 @@ def build_weekly_report(metrics: Dict[str, Any]) -> str:
         f"- Deployment Frequency: {format_value(metrics.get('deployment_frequency_per_week'), ' / week')}",
         f"- MTTR: {format_value(metrics.get('mttr_hours'), ' hours')}",
         f"- Change Failure Rate: {format_value(metrics.get('change_failure_rate_value'))}",
+        f"- Deployment Job Failure Rate: {format_value(metrics.get('deployment_failure_rate_value'))}",
         "",
         "## Metric Definitions",
         "",
         "- Lead Time: time from the code commit to a successful deployment.",
         "- Deployment Frequency: how often deploys happen in a week.",
         "- MTTR: mean time to restore service after an incident.",
-        "- Change Failure Rate: share of deployments that fail or require rollback.",
+        "- Change Failure Rate: share of successful operational deployments linked to incident issues by deployment ID or commit SHA.",
+        "- Deployment Job Failure Rate: share of deployment jobs whose terminal status is failure, error, rollback, or cancellation.",
         "",
         "## Data Sources",
         "",
@@ -537,6 +585,11 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
           <div class="value" id="change-failure-rate">null</div>
           <div class="reason" id="change-failure-rate-reason">-</div>
         </div>
+                <div class="card">
+                    <div class="label">Deployment Job Failure Rate</div>
+                    <div class="value" id="deployment-failure-rate">null</div>
+                    <div class="reason" id="deployment-failure-rate-reason">-</div>
+                </div>
       </div>
 
       <div class="status" id="status">상태: 초기화 중...</div>
@@ -590,6 +643,7 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
           data.deployment_frequency_per_week,
           data.mttr_hours,
           data.change_failure_rate_value,
+          data.deployment_failure_rate_value,
         ].some((value) => value !== null && value !== undefined);
 
                 if (collectionErrors.length > 0) {
@@ -607,6 +661,7 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
         showMetric('deployment-frequency', 'deployment_frequency_per_week', data);
         showMetric('mttr', 'mttr_hours', data);
         showMetric('change-failure-rate', 'change_failure_rate_value', data);
+        showMetric('deployment-failure-rate', 'deployment_failure_rate_value', data);
       }
 
       async function loadMetrics() {
@@ -630,10 +685,12 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
           document.getElementById('deployment-frequency').textContent = 'null';
           document.getElementById('mttr').textContent = 'null';
           document.getElementById('change-failure-rate').textContent = 'null';
+          document.getElementById('deployment-failure-rate').textContent = 'null';
           document.getElementById('lead-time-reason').textContent = '파일 로딩에 실패했습니다.';
           document.getElementById('deployment-frequency-reason').textContent = '파일 로딩에 실패했습니다.';
           document.getElementById('mttr-reason').textContent = '파일 로딩에 실패했습니다.';
           document.getElementById('change-failure-rate-reason').textContent = '파일 로딩에 실패했습니다.';
+          document.getElementById('deployment-failure-rate-reason').textContent = '파일 로딩에 실패했습니다.';
         }
       }
 

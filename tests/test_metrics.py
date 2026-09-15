@@ -18,6 +18,8 @@ class DORAMetricsTest(unittest.TestCase):
         self.assertIn("reason", metrics["deployment_frequency"])
         self.assertIn("reason", metrics["mttr"])
         self.assertIn("reason", metrics["change_failure_rate"])
+        self.assertIn("completeness", metrics["change_failure_rate"]["reason"])
+        self.assertIsNone(metrics["deployment_failure_rate_value"])
 
     def test_sample_data_is_calculated(self):
         deployments = [
@@ -26,8 +28,8 @@ class DORAMetricsTest(unittest.TestCase):
             {"id": "d3", "status": "failed", "started_at": "2026-09-12T07:00:00Z", "deployed_at": "2026-09-12T07:30:00Z"},
         ]
         incidents = [
-            {"id": "i1", "status": "resolved", "started_at": "2026-09-03T00:00:00Z", "resolved_at": "2026-09-03T04:00:00Z"},
-            {"id": "i2", "status": "resolved", "started_at": "2026-09-09T06:00:00Z", "resolved_at": "2026-09-09T08:00:00Z"},
+            {"id": "i1", "status": "resolved", "started_at": "2026-09-03T00:00:00Z", "resolved_at": "2026-09-03T04:00:00Z", "deployment_ids": ["d1"]},
+            {"id": "i2", "status": "resolved", "started_at": "2026-09-09T06:00:00Z", "resolved_at": "2026-09-09T08:00:00Z", "deployment_ids": ["d1"]},
         ]
 
         metrics = calculate_dora_metrics(deployments, incidents, days=7, reference_time="2026-09-14T00:00:00Z")
@@ -35,7 +37,8 @@ class DORAMetricsTest(unittest.TestCase):
         self.assertAlmostEqual(metrics["lead_time_hours"], 1.75, places=2)
         self.assertAlmostEqual(metrics["deployment_frequency_per_week"], 1.0, places=2)
         self.assertAlmostEqual(metrics["mttr_hours"], 3.0, places=2)
-        self.assertAlmostEqual(metrics["change_failure_rate_value"], 0.3333333333, places=4)
+        self.assertAlmostEqual(metrics["change_failure_rate_value"], 0.5, places=4)
+        self.assertAlmostEqual(metrics["deployment_failure_rate_value"], 0.3333333333, places=4)
 
     def test_weekly_report_includes_null_and_reason_guidance(self):
         metrics = calculate_dora_metrics([], [], days=7)
@@ -102,12 +105,14 @@ class DORAMetricsTest(unittest.TestCase):
             },
         ]
 
-        metrics = calculate_dora_metrics(deployments, [], reference_time="2026-09-15T06:10:00Z")
+        incidents = [{"id": "incident-1", "deployment_ids": ["pages-1"], "started_at": "2026-09-15T06:07:30Z", "resolved_at": "2026-09-15T06:08:00Z"}]
+        metrics = calculate_dora_metrics(deployments, incidents, reference_time="2026-09-15T06:10:00Z")
         report = build_weekly_report(metrics)
 
         self.assertAlmostEqual(metrics["lead_time_hours"], 27 / 3600, places=6)
         self.assertEqual(metrics["deployment_frequency_per_week"], 1.0)
-        self.assertEqual(metrics["change_failure_rate_value"], 0.5)
+        self.assertEqual(metrics["change_failure_rate_value"], 1.0)
+        self.assertEqual(metrics["deployment_failure_rate_value"], 0.5)
         self.assertEqual(metrics["deployment_evidence"]["record_count"], 2)
         self.assertEqual(metrics["deployment_evidence"]["unique_record_count"], 2)
         self.assertIn("27.0 seconds", report)
