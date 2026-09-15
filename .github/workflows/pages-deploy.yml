@@ -28,25 +28,6 @@ jobs:
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Create static site if needed
-        run: |
-          if [ ! -f index.html ]; then
-            cat > index.html <<'HTML'
-            <!DOCTYPE html>
-            <html lang="ko">
-              <head>
-                <meta charset="UTF-8" />
-                <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-                <title>DORA Demo Web App</title>
-              </head>
-              <body>
-                <h1>DORA Demo Site</h1>
-                <p>GitHub Pages deployment for DORA tracking.</p>
-              </body>
-            </html>
-            HTML
-          fi
-
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
