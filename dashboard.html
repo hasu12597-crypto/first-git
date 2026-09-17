@@ -30,6 +30,11 @@
       .reason { margin-top: 10px; font-size: 13px; color: #4b5563; line-height: 1.4; }
       .note { margin-top: 20px; padding: 16px 20px; background: #eef6ff; border-left: 4px solid #3b82f6; border-radius: 8px; }
       .status { margin-top: 16px; font-size: 14px; font-weight: 600; }
+      .level-badge { display: inline-block; margin-top: 10px; padding: 6px 14px; border-radius: 999px; font-size: 14px; font-weight: 700; }
+      .level-badge.elite { color: #6422c9; background: #eee7ff; }
+      .level-badge.high { color: #3730a3; background: #e0e7ff; }
+      .level-badge.medium { color: #1e40af; background: #dbeafe; }
+      .level-badge.low, .level-badge.unclassified, .level-badge.unavailable { color: #4b5563; background: #f3f4f6; }
 
       @media (max-width: 600px) { body { padding: 16px; } }
     </style>
@@ -41,6 +46,7 @@
         <div class="card">
           <div class="label">Lead Time</div>
           <div class="value" id="lead-time">null</div>
+          <div class="level-badge unavailable" id="lead-time-level" role="status">평가 불가</div>
           <div class="reason" id="lead-time-reason">-</div>
         </div>
         <div class="card">
@@ -83,6 +89,23 @@
                 return seconds < 60 ? `${seconds.toFixed(1)} seconds` : formatMetricValue(value, ' hours');
             }
 
+              function classifyLeadTime(hours, hasErrors = false) {
+                if (hasErrors || typeof hours !== 'number' || !Number.isFinite(hours) || hours < 0) return 'unavailable';
+                if (hours < 1) return 'elite';
+                if (hours < 24) return 'unclassified';
+                if (hours < 168) return 'high';
+                if (hours < 720) return 'medium';
+                return 'low';
+              }
+
+              function renderLeadTimeLevel(data) {
+                const level = classifyLeadTime(data.lead_time_hours, (data.collection_errors || []).length > 0);
+                const labels = { elite: 'Elite', high: 'High', medium: 'Medium', low: 'Low', unclassified: '기준 미정', unavailable: '평가 불가' };
+                const badge = document.getElementById('lead-time-level');
+                badge.textContent = labels[level];
+                badge.className = `level-badge ${level}`;
+              }
+
       function showMetric(metricId, metricKey, data) {
         const valueElem = document.getElementById(metricId);
         const reasonElem = document.getElementById(`${metricId}-reason`);
@@ -112,6 +135,7 @@
       }
 
       function renderData(data) {
+        renderLeadTimeLevel(data);
                 const collectionErrors = data.collection_errors || [];
         const hasValues = [
           data.lead_time_hours,
