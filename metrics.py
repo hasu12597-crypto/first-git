@@ -568,22 +568,6 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
       .note { margin-top: 20px; padding: 16px 20px; background: #eef6ff; border-left: 4px solid #3b82f6; border-radius: 8px; }
       .status { margin-top: 16px; font-size: 14px; font-weight: 600; }
 
-      .level-badge { display: inline-block; padding: 6px 14px; border-radius: 999px; font-size: 14px; font-weight: 700; margin-top: 10px; }
-      .elite { color: #6422c9; background: #eee7ff; }
-      .high { color: #3730a3; background: #e0e7ff; }
-      .medium { color: #1e40af; background: #dbeafe; }
-      .low, .unclassified, .unavailable { color: #4b5563; background: #f3f4f6; }
-      .levels { margin-top: 28px; }
-      .levels h2 { font-size: 22px; margin-bottom: 8px; }
-      .levels p { color: #4b5563; line-height: 1.6; }
-      .table-scroll { overflow-x: auto; border-radius: 12px; background: white; border: 1px solid #dce3ee; }
-      .levels table { width: 100%; min-width: 680px; border-collapse: collapse; text-align: left; }
-      .levels th, .levels td { padding: 16px 20px; border-bottom: 1px solid #e5e7eb; }
-      .levels th { background: #f8fafc; color: #475569; }
-      .levels .level-badge { margin: 0; }
-      .levels tr.current { background: #faf5ff; outline: 2px solid #7c3aed; outline-offset: -2px; }
-      .current-mark { display: none; margin-left: 8px; font-weight: 700; color: #6422c9; }
-      .current .current-mark { display: inline; }
       @media (max-width: 600px) { body { padding: 16px; } }
     </style>
   </head>
@@ -594,7 +578,6 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
         <div class="card">
           <div class="label">Lead Time</div>
           <div class="value" id="lead-time">null</div>
-          <div class="level-badge unavailable" id="lead-time-level" role="status">평가 불가</div>
           <div class="reason" id="lead-time-reason">-</div>
         </div>
         <div class="card">
@@ -613,21 +596,6 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
           <div class="reason" id="change-failure-rate-reason">-</div>
         </div>
       </div>
-
-      <section class="levels" aria-labelledby="levels-title">
-        <h2 id="levels-title">Lead Time 성과 수준</h2>
-        <p>수업 자료 기준 · 현재 수집 결과의 평균 Lead Time으로 판정합니다.</p>
-        <div class="table-scroll" tabindex="0" role="region" aria-label="Lead Time 성과 수준 기준표">
-          <table><thead><tr><th scope="col">성과 수준</th><th scope="col">시간 기준</th><th scope="col">설명</th></tr></thead><tbody>
-            <tr data-level="elite"><th scope="row"><span class="level-badge elite">Elite</span><span class="current-mark">현재</span></th><td>0 이상 ~ 1시간 미만</td><td>커밋 후 신속하게 운영 환경에 배포되는 수준.</td></tr>
-            <tr data-level="unclassified"><th scope="row"><span class="level-badge unclassified">기준 미정</span><span class="current-mark">현재</span></th><td>1시간 이상 ~ 1일 미만</td><td>수업 자료에 구간 기준이 없어 등급을 부여하지 않습니다.</td></tr>
-            <tr data-level="high"><th scope="row"><span class="level-badge high">High</span><span class="current-mark">현재</span></th><td>1일 이상 ~ 7일 미만</td><td>빠른 피드백 주기로 변경 사항을 전달하는 수준.</td></tr>
-            <tr data-level="medium"><th scope="row"><span class="level-badge medium">Medium</span><span class="current-mark">현재</span></th><td>7일 이상 ~ 30일 미만</td><td>스프린트 등 정기적인 주기로 배포하는 수준.</td></tr>
-            <tr data-level="low"><th scope="row"><span class="level-badge low">Low</span><span class="current-mark">현재</span></th><td>30일 이상</td><td>배포 간격이 길어 변경 사항의 피드백이 늦어지는 수준.</td></tr>
-          </tbody></table>
-        </div>
-        <p>1개월은 30일로 환산합니다. 경계값은 다음 구간에 포함하며, 1시간 이상~1일 미만은 자료에 빠진 구간입니다. 데이터가 없거나 수집 오류가 있으면 평가하지 않습니다.</p>
-      </section>
 
       <div class="status" id="status">상태: 초기화 중...</div>
       <div class="note" id="notes">데이터가 없으면 null로 표시되고, 각 지표의 reason을 통해 원인을 확인할 수 있습니다.</div>
@@ -680,31 +648,7 @@ def build_dashboard_html(metrics: Dict[str, Any]) -> str:
         return rawValue;
       }
 
-      function classifyLeadTime(hours, hasErrors = false) {
-        if (hasErrors || typeof hours !== 'number' || !Number.isFinite(hours) || hours < 0) return 'unavailable';
-        if (hours < 1) return 'elite';
-        if (hours < 24) return 'unclassified';
-        if (hours < 168) return 'high';
-        if (hours < 720) return 'medium';
-        return 'low';
-      }
-
-      function renderLeadTimeLevel(data) {
-        const level = classifyLeadTime(data.lead_time_hours, (data.collection_errors || []).length > 0);
-        const labels = { elite: 'Elite', high: 'High', medium: 'Medium', low: 'Low', unclassified: '기준 미정', unavailable: '평가 불가' };
-        const badge = document.getElementById('lead-time-level');
-        badge.textContent = labels[level];
-        badge.className = `level-badge ${level}`;
-        document.querySelectorAll('[data-level]').forEach(row => {
-          const current = row.dataset.level === level;
-          row.classList.toggle('current', current);
-          if (current) row.setAttribute('aria-current', 'true');
-          else row.removeAttribute('aria-current');
-        });
-      }
-
       function renderData(data) {
-        renderLeadTimeLevel(data);
                 const collectionErrors = data.collection_errors || [];
         const hasValues = [
           data.lead_time_hours,
