@@ -13,8 +13,6 @@ jobs:
   deploy:
     permissions:
       contents: read
-      deployments: read
-      issues: read
       pages: write
       id-token: write
     environment:
@@ -57,27 +55,23 @@ jobs:
         id: deploy
         uses: actions/deploy-pages@v4
 
-      - name: Record deployment metadata
-        id: record
-        shell: bash
-        run: |
-          mkdir -p data
-          COMMIT_TS=$(git log -1 --format=%cI HEAD)
-          DEPLOY_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          cat > data/deployments.json <<JSON
-          [
-            {
-              "id": "pages-${GITHUB_RUN_ID}",
-              "status": "success",
-              "commit_sha": "${GITHUB_SHA}",
-              "commit_timestamp": "${COMMIT_TS}",
-              "deployed_at": "${DEPLOY_TS}",
-              "environment": "github-pages",
-              "source": "github-pages",
-              "url": "${{ steps.deploy.outputs.page_url }}"
-            }
-          ]
-          JSON
+  collect-metrics:
+    name: Collect metrics after deployment
+    needs: deploy
+    permissions:
+      contents: read
+      deployments: read
+      issues: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
       - name: Generate DORA metrics
         env:
