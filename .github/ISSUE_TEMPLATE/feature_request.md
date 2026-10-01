@@ -1,8 +1,8 @@
 ---
-name: Feature Request
+name: enhancement Request
 about: 새로운 기능 제안
-title: "[Feature] "
-labels: feature
+title: "[enhancement] "
+labels: enhancement
 assignees: ""
 ---
 
