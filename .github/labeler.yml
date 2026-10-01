@@ -1,0 +1,26 @@
+# 변경된 파일 경로에 따라 Pull Request 라벨을 자동으로 지정합니다.
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.md'
+          - 'docs/**/*'
+
+bug:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'tests/**/*'
+          - '.github/workflows/**/*'
+
+enhancement:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.py'
+          - '**/*.html'
+          - '**/*.js'
+
+maintenance:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**/*'
+          - '*.yml'
+          - '*.yaml'
