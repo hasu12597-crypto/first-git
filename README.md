@@ -17,3 +17,7 @@ OSS 기반 SW 프로그래밍 과제입니다. GitHub Actions와 GitHub API로 D
 - 검증 방법: 생성된 내용과 코드를 직접 검토하고, GitHub Actions 실행 결과와 실제 저장소 동작으로 확인함
 
 AI가 제안한 내용을 프로젝트에 맞게 수정했으며, 제출 전 사실과 실행 결과를 직접 확인했습니다.
+
+## 협업 개발 실습
+
+이 저장소는 GitHub Projects, Issues, Pull Request, GitHub Actions를 활용한 협업 개발 실습 프로젝트입니다.
