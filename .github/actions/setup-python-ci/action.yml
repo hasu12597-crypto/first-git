@@ -1,0 +1,31 @@
+name: Setup Python CI
+description: Set up Python, restore pip cache, and install CI tools.
+
+inputs:
+  python-version:
+    description: Python version to install
+    required: true
+  requirements-file:
+    description: CI dependency file
+    required: false
+    default: .github/requirements-ci.txt
+
+outputs:
+  cache-hit:
+    description: Whether the pip cache was restored
+    value: ${{ steps.setup-python.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python with pip cache
+      id: setup-python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: pip
+        cache-dependency-path: ${{ inputs.requirements-file }}
+
+    - name: Install CI dependencies
+      shell: bash
+      run: python -m pip install --disable-pip-version-check -r "${{ inputs.requirements-file }}"
