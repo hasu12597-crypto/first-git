@@ -30,6 +30,10 @@ jobs:
     outputs:
       deploy: ${{ steps.filter.outputs.deploy }}
     steps:
+      - name: Checkout repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Check changed paths
         id: filter
         uses: dorny/paths-filter@v3
