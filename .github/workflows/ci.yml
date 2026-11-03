@@ -88,7 +88,6 @@ jobs:
     with:
       os: ${{ matrix.os }}
       python-version: ${{ matrix.python-version }}
-    secrets: inherit
 
   deploy:
     name: Publish verified CI artifact

@@ -9,10 +9,6 @@ on:
       python-version:
         required: true
         type: string
-    secrets:
-      GITHUB_TOKEN:
-        required: false
-
 jobs:
   test:
     runs-on: ${{ inputs.os }}
@@ -53,7 +49,7 @@ jobs:
 
       - name: Verify GitHub token injection
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: python -c "import os; print('GITHUB_TOKEN configured:', bool(os.environ.get('GITHUB_TOKEN')))"
 
       - name: Lint Python files
