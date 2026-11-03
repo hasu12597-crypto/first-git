@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  build:
+    name: Build project artifact
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build source artifact
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+          files = [Path('metrics.py'), Path('dashboard.html'), Path('index.html'), Path('weekly-report.md')]
+          files.extend(sorted(Path('tests').glob('*.py')))
+          missing = [str(path) for path in files if not path.is_file()]
+          if missing:
+              raise SystemExit(f'Missing build files: {missing}')
+          with ZipFile('devflow-build.zip', 'w', ZIP_DEFLATED) as archive:
+              for path in files:
+                  archive.write(path, path.as_posix())
+          print(f'Built {len(files)} files into devflow-build.zip')
+          PY
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: devflow-build
+          path: devflow-build.zip
+
+  test:
+    name: Test ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.12']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: devflow-build
+          path: build-artifact
+      - name: Verify GitHub token injection
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python -c "import os; print('GITHUB_TOKEN configured:', bool(os.environ.get('GITHUB_TOKEN')))"
+      - name: Install lint tool
+        run: python -m pip install --disable-pip-version-check ruff
+      - name: Lint Python files
+        run: python -m ruff check metrics.py tests --select E9,F63,F7,F82
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+  deploy:
+    name: Publish verified CI artifact
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: devflow-build
+          path: build-artifact
+      - name: Publish verified artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: devflow-verified-build
+          path: build-artifact/devflow-build.zip

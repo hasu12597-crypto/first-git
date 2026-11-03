@@ -122,10 +122,14 @@ class DORAMetricsTest(unittest.TestCase):
         deployments = [
             {"id": "success", "deployment_status": "success", "status_timestamp": "2026-09-15T05:00:00Z"},
             {"id": "failure", "deployment_status": "failure", "status_timestamp": "2026-09-15T06:00:00Z"},
-            {"id": "running", "deployment_status": "in_progress"},
+            {"id": "running", "deployment_status": "in_progress", "status_timestamp": "2026-09-15T07:00:00Z"},
         ]
 
-        metrics = calculate_dora_metrics(deployments, [])
+        metrics = calculate_dora_metrics(
+            deployments,
+            [],
+            reference_time="2026-09-15T08:00:00Z",
+        )
 
         self.assertEqual(metrics["change_failure_rate_value"], 50.0)
         self.assertEqual(metrics["deployment_evidence"]["record_count"], 3)
