@@ -1,0 +1,63 @@
+name: Reusable Python tests
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        required: true
+        type: string
+      python-version:
+        required: true
+        type: string
+    secrets:
+      GITHUB_TOKEN:
+        required: false
+
+jobs:
+  test:
+    runs-on: ${{ inputs.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start cache timing
+        shell: pwsh
+        run: |
+          "CI_CACHE_START_MS=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" >> $env:GITHUB_ENV
+
+      - name: Set up Python CI
+        id: python-ci
+        uses: ./.github/actions/setup-python-ci
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: End cache timing and write summary
+        shell: pwsh
+        env:
+          CACHE_HIT: ${{ steps.python-ci.outputs.cache-hit }}
+        run: |
+          $end = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+          $start = [int64]$env:CI_CACHE_START_MS
+          $elapsed = $end - $start
+          "### CI cache measurement" >> $env:GITHUB_STEP_SUMMARY
+          "- OS: `${{ inputs.os }}`" >> $env:GITHUB_STEP_SUMMARY
+          "- Python: `${{ inputs.python-version }}`" >> $env:GITHUB_STEP_SUMMARY
+          "- Cache hit: `$env:CACHE_HIT`" >> $env:GITHUB_STEP_SUMMARY
+          "- Setup and dependency time: **${elapsed} ms**" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: devflow-build
+          path: build-artifact
+
+      - name: Verify GitHub token injection
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python -c "import os; print('GITHUB_TOKEN configured:', bool(os.environ.get('GITHUB_TOKEN')))"
+
+      - name: Lint Python files
+        run: python -m ruff check metrics.py tests --select E9,F63,F7,F82
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
